@@ -661,7 +661,7 @@ for await (const chunk of engine.SeeboStream({ template, values })) response.wri
   caricate pigramente (`defineLibrary`/`defineCapability`), così il core resta piccolo,
   *tree-shakeable* e identico su browser e server.
 
-## 15. Versionamento e policy di compatibilità
+## 14. Versionamento e policy di compatibilità
 
 Tre contratti attraversano il confine motore↔applicazione e portano un numero di
 versione **indipendente**:

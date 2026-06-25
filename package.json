@@ -1,0 +1,30 @@
+{
+  "name": "seebo",
+  "version": "0.1.0",
+  "description": "Seebo — Suspendable Evaluation Engine Built with Opus",
+  "type": "module",
+  "license": "MIT",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "bench": "node bench/index.js"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.0",
+    "typescript": "^5.5.0"
+  }
+}

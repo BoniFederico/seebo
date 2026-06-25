@@ -1,0 +1,17 @@
+{
+  "//": "Type-checking only via JSDoc. There is NO TypeScript build: `tsc --noEmit` validates JSDoc contracts on plain .js files.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*.js", "test/**/*.js", "bench/**/*.js"]
+}

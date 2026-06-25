@@ -1,10 +1,10 @@
-# SPEC.md — Specifica di *Stebo.js*
+# SPEC.md — Specifica di *seebo .js*
 
-> **Cos'è questo documento.** È la **specifica di riferimento** di *Stebo* ("Suspendable
+> **Cos'è questo documento.** È la **specifica di riferimento** di *seebo * ("Suspendable
 Evaluation Engine Built with Opus"): il linguaggio, il suo modello di esecuzione e
 > l'API pubblica. 
 >
-> **Cos'è Stebo, in una frase.** Stebo non è un template engine che supporta la
+> **Cos'è seebo , in una frase.** seebo  non è un template engine che supporta la
 > risoluzione multi-fase: è un **motore di valutazione sospendibile** (*resumable
 > evaluation engine*) in cui il rendering di template è una delle applicazioni
 > possibili. Il documento finale è soltanto *l'ultimo stato di una conversazione* tra
@@ -20,7 +20,7 @@ Evaluation Engine Built with Opus"): il linguaggio, il suo modello di esecuzione
 
 ## 1.1 Modello concettuale
 
-Stebo elabora un **documento**: una stringa di testo qualsiasi che può contenere
+seebo  elabora un **documento**: una stringa di testo qualsiasi che può contenere
 **slot**. Uno slot è una porzione di testo che, durante la **valutazione**, viene
 **interamente sostituita** (sigillo e parentesi inclusi) con qualcos'altro.
 
@@ -51,7 +51,7 @@ scelte successive ne discendono.
    *valore* o un *errore*: può produrre anche un **bisogno** (`Need`), cioè la richiesta
    di un dato che il motore non possiede ancora. In quel caso la valutazione **si
    sospende** invece di fallire, e potrà essere **ripresa** quando il mondo esterno
-   avrà soddisfatto quel bisogno. *Perché*: è ciò che distingue Stebo da Jinja o
+   avrà soddisfatto quel bisogno. *Perché*: è ciò che distingue seebo  da Jinja o
    Liquid. Un template non è una funzione "tutto-o-niente": è la descrizione di una
    **conversazione** tra il motore e un insieme di risolutori esterni (§1.9).
 
@@ -336,7 +336,7 @@ ${ (now() - ultimo_accesso) > duration(30 * 86400)
 
 ## 1.6 Requirement, Capability e Need (il modello di esecuzione)
 
-Questa è la sezione che distingue Stebo. La trattiamo per gradi.
+Questa è la sezione che distingue seebo . La trattiamo per gradi.
 
 ### Value vs Requirement
 
@@ -367,7 +367,7 @@ client di costruire UI e orchestrazioni intelligenti. **Solo `id`, `type` e
 | Campo | Obbl. | Significato |
 |---|---|---|
 | `id` | ✓ | identificatore univoco del requirement (chiave nello stato) |
-| `type` | ✓ | il tipo Stebo atteso, come *builder* (`string()`, `array().constraints({…})`): porta con sé format, constraints ed eventuale default |
+| `type` | ✓ | il tipo seebo  atteso, come *builder* (`string()`, `array().constraints({…})`): porta con sé format, constraints ed eventuale default |
 | `capability` | ✓ | la **capacità** che lo può soddisfare (`user`, `crm`, `weather`, …) |
 | `label` | | etichetta breve per la UI |
 | `description` | | testo esteso / aiuto |
@@ -398,7 +398,7 @@ capability 'weather'  →  una API meteo
 
 *Perché*: si può **sostituire l'intero backend senza toccare i template**.
 
-> **Nessuna capability è builtin.** Stebo non assume l'esistenza di `user`, `env`,
+> **Nessuna capability è builtin.** seebo  non assume l'esistenza di `user`, `env`,
 > `source` o altro: sarebbe una scelta arbitraria che tradirebbe la genericità del
 > modello. L'**intero set di capability utilizzabili è definito dall'applicazione** in
 > `createEngine` (§2.2). Un requirement che cita una capability non registrata è un
@@ -636,7 +636,7 @@ I controlli che dipendono solo dalla struttura/tipi/capability li fa `validate`
   e perfino il core di esecuzione `run` non hanno effetti collaterali e sono
   **sincrone** (dipendono solo da testo + stato).
 - **Asincronia confinata al driver.** Solo l'orchestratore che *interroga le
-  capability* (`drive`/`stebo`) è asincrono. Il cuore resta puro.
+  capability* (`drive`/`seebo `) è asincrono. Il cuore resta puro.
 - **Errori strutturati.** Ogni errore porta `code`, `message` e `position` (l'elenco
   normativo dei `code` è parte del contratto pubblico).
 - **Contratti pubblici versionati.** Le strutture che attraversano il confine
@@ -651,7 +651,7 @@ Costruisce un motore **configurato**: lega una volta sola tipi, funzioni, macro,
 librerie, capability e politiche. Restituisce un oggetto con i metodi delle §2.3–2.6.
 
 ```js
-import { createEngine, builtins } from 'stebo';
+import { createEngine, builtins } from 'seebo ';
 
 const engine = createEngine({
   // Vocabolario del linguaggio
@@ -744,7 +744,7 @@ engine.validate("${ nome }")
 ```
 
 ### `engine.analyze(template) → Analysis`
-Descrive **cosa serve** per completare il documento, senza eseguirlo. Qui Stebo si
+Descrive **cosa serve** per completare il documento, senza eseguirlo. Qui seebo  si
 comporta quasi come un **compilatore**: non produce solo l'elenco dei requirement, ma
 un piano completo. I requirement restituiti sono i descrittori dichiarati (§1.6),
 **arricchiti** con campi *derivati* che non si scrivono a mano: `phase` (calcolata dal
@@ -869,7 +869,7 @@ if (state.status === 'completed') console.log(state.output);
 > riprendere altrove (anche in un altro processo). `run(state) → newState` è
 > deliberatamente *funzionale*: niente `engine.resume(...)` con stato nascosto.
 
-## 2.5 Capability automatiche e orchestrazione: `drive`, `expand`, `finalize`, `stebo`
+## 2.5 Capability automatiche e orchestrazione: `drive`, `expand`, `finalize`, `seebo `
 
 Il ciclo di §2.4 è esplicito di proposito, ma spesso molti `Need` si soddisfano da
 soli (un `crm`, un `secrets`): non serve coinvolgere l'utente. Il **driver** lo fa
@@ -895,7 +895,7 @@ const composed = await engine.expand({ template, templates });
 const output = engine.finalize(resolvedText);
 
 // Convenience: incatena (a) → (b) → (c), gestendo la conversazione.
-const res = await engine.stebo({ template, templates, values });
+const res = await engine.seebo ({ template, templates, values });
 ```
 
 > **Perché fasi separate e in quest'ordine.** *Comporre → riempire → ripulire* è
@@ -976,7 +976,7 @@ engine.analyze(template);
 // capabilitiesUsed: ['secrets','crm','user']; maxPhases: 1
 
 // 2) Esegui (driver): secrets/crm si risolvono da soli; i Need 'user' arrivano da `values`
-const res = await engine.stebo({
+const res = await engine.seebo ({
   template,
   values: { saluto: 'Gentile', note: '' },
 });
