@@ -15,9 +15,11 @@ like `SPEC §x.y` / `IMPL §x` point to those documents.
 > `ABSORB`/`MERGE`, pre-pass) and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`, post-pass).
 > The full expression grammar evaluates (literals, refs, producers, methods, object/array
 > literals, operators incl. temporal arithmetic, ternary, desugared `match`), and the SPEC §2.7
-> end-to-end example passes. The full conformance suite runs with **no skipped tests**. Still
-> pending: built-in libraries (`fake.*`, currently `NotImplementedError`) and custom-type
-> runtime construction (`defineType` reserves the name only).
+> end-to-end example passes. The full conformance suite runs with **no skipped tests**.
+> Extension points are wired: custom types (`defineType` — construction/validation/stringify),
+> custom functions/transformers, custom finalize macros (`defineMacro` `apply`) and libraries;
+> `builtins.{types,functions,macros}` expose the standard vocabulary for `...builtins.all`.
+> Still pending: a shipped built-in `fake.*` library (the `defineLibrary` mechanism exists).
 
 ## Design principles (SPEC §1.1)
 

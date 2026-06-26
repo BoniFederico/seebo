@@ -60,6 +60,7 @@ const BUILTIN_MACRO_NAMES = [
  * @property {(ns: string) => boolean} hasLibrary  Whether a library namespace is registered.
  * @property {(name: string) => boolean} hasCapability  Whether a capability is registered.
  * @property {(name: string) => import('../index.js').TypeExtensionDef | undefined} getType  Custom type descriptor by name.
+ * @property {(name: string) => import('../index.js').MacroExtensionDef | undefined} getMacro  Custom macro descriptor by name.
  * @property {ReadonlyArray<string>} libraryNames  Registered library namespaces.
  * @property {Readonly<Record<string, 'aggregator'|'layout'>>} macroFamilies  Custom macro → family.
  */
@@ -85,6 +86,8 @@ export function createRegistry(config = {}) {
   const libraries = new Map();
   /** @type {Map<string, import('../index.js').TypeExtensionDef>} */
   const types = new Map();
+  /** @type {Map<string, import('../index.js').MacroExtensionDef>} */
+  const macros = new Map();
   /** @type {Record<string, 'aggregator'|'layout'>} */
   const macroFamilies = {};
 
@@ -142,7 +145,10 @@ export function createRegistry(config = {}) {
     if (reserved.has(def.name)) throw reservedName(def.name);
     if (macroNamespace.has(def.name)) throw nameConflict(def.name, 'macro');
     macroNamespace.add(def.name);
-    macroFamilies[def.name] = def.family ?? (def.phase === 'expand' ? 'aggregator' : 'layout');
+    const family = def.family ?? (def.phase === 'expand' ? 'aggregator' : 'layout');
+    macroFamilies[def.name] = family;
+    // Store with the resolved family so consumers (FINALIZE) need not re-derive it.
+    macros.set(def.name, { ...def, family });
   }
 
   const capabilityNames = new Set(Object.keys(config.capabilities ?? {}));
@@ -154,6 +160,7 @@ export function createRegistry(config = {}) {
     hasLibrary: (ns) => libraries.has(ns),
     hasCapability: (name) => capabilityNames.has(name),
     getType: (name) => types.get(name),
+    getMacro: (name) => macros.get(name),
     libraryNames: Object.freeze([...libraries.keys()]),
     macroFamilies: Object.freeze({ ...macroFamilies }),
   });

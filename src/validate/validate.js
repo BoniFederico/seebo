@@ -193,6 +193,12 @@ export function validate(template, config) {
       for (const arg of call.args) walk(arg);
       return 'unknown';
     }
+    // A custom type constructor `T(value)` (defineType): one value argument (SPEC §2.6).
+    if (registry?.getType?.(callee)) {
+      checkArity(call, callee, 1, 1);
+      for (const arg of call.args) walk(arg);
+      return 'unknown';
+    }
     diagnostics.push(
       diag(DiagnosticCode.UNKNOWN_FUNCTION, call, `unknown function '${callee}'`, { name: callee })
     );

@@ -26,6 +26,7 @@ import {
   makeArray,
   makeDatetime,
   makeDuration,
+  makeCustom,
   fromJs,
   isValue,
   isNumeric,
@@ -134,7 +135,7 @@ export function evaluateDocument(ast, resolved, config) {
       if (macro.family === 'layout') output += renderMacroMarker(macro, config);
     } else if (node.kind === 'Formula') {
       const res = evaluate(/** @type {any} */ (node).expr, ctx);
-      if (res.kind === 'Ok') output += toText(res.value, config?.locale);
+      if (res.kind === 'Ok') output += toText(res.value, config?.locale, registryOf(ctx));
       else if (res.kind === 'Err') {
         return { status: 'failed', pending: [], diagnostics: [res.diagnostic] };
       }
@@ -432,7 +433,17 @@ function evalCall(e, ctx) {
     }
     const args = evalList(e.args, ctx);
     if (args.blocking) return args.blocking;
-    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
+    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values), registryOf(ctx)), e);
+  }
+  // Custom type constructor registered via defineType (SPEC §2.6), consulted before producers.
+  const typeDef = registryOf(ctx)?.getType?.(e.callee);
+  if (typeDef) {
+    if (e.args.length === 0) {
+      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.callee}()' is a type builder, not a value`);
+    }
+    const args = evalList(e.args, ctx);
+    if (args.blocking) return args.blocking;
+    return tryApply(() => constructCustom(typeDef, /** @type {any} */ (args.values)), e);
   }
   // Custom producer registered via defineFunction (SPEC §2.6), consulted only after builtins.
   const producer = registryOf(ctx)?.getProducer(e.callee);
@@ -554,13 +565,14 @@ function evalArrayLit(e, ctx) {
 /**
  * Constructs or converts a value for a type producer `T(arg)` (SPEC §1.5).
  * @param {string} type @param {import('../runtime/values.js').Value[]} args
+ * @param {import('../runtime/registry.js').Registry} [registry]  For stringifying custom-type receivers.
  * @returns {import('../runtime/values.js').Value}
  */
-function construct(type, args) {
+function construct(type, args, registry) {
   const v = args[0];
   switch (type) {
     case 'string':
-      return makeString(toText(v));
+      return makeString(toText(v, undefined, registry));
     case 'int':
       return convertInt(v);
     case 'float':
@@ -586,6 +598,28 @@ function construct(type, args) {
     default:
       throw typeErr(`unknown type '${type}'`);
   }
+}
+
+/**
+ * Constructs a custom-type value (SPEC §2.6 `defineType`). The first argument's plain JS
+ * payload becomes the value; the type's optional `validate(value, constraints)` runs at
+ * construction and a falsy result is a `CONSTRAINT_VIOLATION`. The descriptor's
+ * `defaultFormat` seeds the value's `format`.
+ * @param {import('../index.js').TypeExtensionDef} def
+ * @param {import('../runtime/values.js').Value[]} args
+ * @returns {import('../runtime/values.js').Value}
+ */
+function constructCustom(def, args) {
+  const value = makeCustom(def.name, args[0].value, { format: def.defaultFormat });
+  if (typeof def.validate === 'function') {
+    const ok = def.validate(value.value, /** @type {any} */ (value.constraints));
+    if (!ok) {
+      throw new SeeboError(`value is not a valid '${def.name}'`, {
+        code: DiagnosticCode.CONSTRAINT_VIOLATION,
+      });
+    }
+  }
+  return value;
 }
 
 /**

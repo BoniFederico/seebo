@@ -117,7 +117,7 @@ function macroFamilies(config) {
   /** @type {Record<string, 'aggregator'|'layout'>} */
   const out = {};
   for (const m of config?.macros ?? []) {
-    if (m && typeof m.name === 'string') {
+    if (m && typeof m === 'object' && typeof m.name === 'string') {
       out[m.name] = m.family ?? (m.phase === 'expand' ? 'aggregator' : 'layout');
     }
   }

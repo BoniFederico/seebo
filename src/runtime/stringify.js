@@ -9,12 +9,15 @@
 import { DURATION_UNITS } from './values.js';
 
 /**
- * Renders a typed value to text.
+ * Renders a typed value to text. For a **custom type** (SPEC §2.6) the optional `registry`
+ * supplies the type's `stringify(value, format)`; without one, a JSON/primitive fallback is
+ * used so a registered type always renders.
  * @param {import('./values.js').Value} value
  * @param {string} [_locale]
+ * @param {import('./registry.js').Registry} [registry]
  * @returns {string}
  */
-export function toText(value, _locale) {
+export function toText(value, _locale, registry) {
   switch (value.type) {
     case 'int':
       return formatInt(value);
@@ -32,8 +35,23 @@ export function toText(value, _locale) {
     case 'array':
       return JSON.stringify(value.value);
     default:
-      throw new Error(`cannot stringify unknown type '${value.type}'`);
+      return formatCustom(value, registry);
   }
+}
+
+/**
+ * Renders a custom-type value via its registered `stringify`, or a safe default.
+ * @param {import('./values.js').Value} value
+ * @param {import('./registry.js').Registry} [registry]
+ * @returns {string}
+ */
+function formatCustom(value, registry) {
+  const def = registry?.getType?.(value.type);
+  if (def && typeof def.stringify === 'function') {
+    return String(def.stringify(value.value, value.format ?? {}));
+  }
+  const v = value.value;
+  return v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
 
 /* ----------------------------------------------------------------------------------- *

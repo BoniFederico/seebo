@@ -309,8 +309,10 @@ export function makeArray(items, opts) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Returns `true` if `x` is a well-formed {@link Value} record.
- * Does not verify that the `value` field satisfies type-specific invariants.
+ * Returns `true` if `x` is a well-formed {@link Value} record (the shape `{ type, value,
+ * format, constraints }` with a non-empty string `type`). Does not verify that the `type` is
+ * a builtin nor that the `value` satisfies type-specific invariants — type membership is a
+ * type-specific concern, so a registered custom-type value (SPEC §2.6) is also a Value here.
  * @param {unknown} x
  * @returns {x is Value}
  */
@@ -319,11 +321,33 @@ export function isValue(x) {
     !!x &&
     typeof x === 'object' &&
     typeof (/** @type {any} */ (x).type) === 'string' &&
-    TYPE_SET.has(/** @type {any} */ (x).type) &&
+    (/** @type {any} */ (x).type).length > 0 &&
     'value' in /** @type {any} */ (x) &&
     'format' in /** @type {any} */ (x) &&
     'constraints' in /** @type {any} */ (x)
   );
+}
+
+/**
+ * Creates an immutable value of a **custom** type (SPEC §2.6 `defineType`). The runtime
+ * core stays type-agnostic: the value is an ordinary `{ type, value, format, constraints }`
+ * record whose `value` is deep-sanitized (pollution-safe, JSON-only). Construction-time
+ * validation and stringification are driven by the engine's registered type descriptor, not
+ * by this factory.
+ * @param {string} type  The custom type name (must not be a builtin type).
+ * @param {unknown} value  Plain JSON-compatible payload.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `type` is empty/builtin or the value is not JSON-safe.
+ */
+export function makeCustom(type, value, opts) {
+  if (typeof type !== 'string' || type.length === 0) {
+    throw typeError(`custom type requires a non-empty name, got ${describe(type)}`);
+  }
+  if (TYPE_SET.has(type)) throw typeError(`'${type}' is a builtin type, not a custom one`);
+  const clean = sanitizeJson(value);
+  const frozen = clean !== null && typeof clean === 'object' ? deepFreeze(clean) : clean;
+  return makeValue(type, frozen, opts);
 }
 
 /**

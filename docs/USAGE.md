@@ -109,19 +109,29 @@ const engine = createEngine({ capabilities: { [Weather.name]: Weather.resolve } 
 A macro is an **aggregator** (pre-pass, `expand`) or a **layout** macro (post-pass,
 `finalize`). The family is taken from `family` (or derived from `phase`).
 
+A **layout** macro may carry an `apply(slot, doc)` that FINALIZE runs on the macro's emitted
+marker: `slot = { name, args, start, end }` (raw source `args`), `doc = { text }` is the full
+document, and the return value (coerced to string) **replaces the marker span**.
+
 ```js
 import { defineMacro } from 'seebo';
 
-const Banner = defineMacro('BANNER', { family: 'layout' });
+const Banner = defineMacro('BANNER', {
+  phase: 'finalize',
+  apply: (slot) => `*** ${slot.args[0]?.replace(/'/g, '') ?? ''} ***`,
+});
 const engine = createEngine({ macros: [Banner] });
+// engine.stebo({ template: "@{ BANNER('Hi') }" }) → output "*** Hi ***"
 ```
 
 ### Custom types — `defineType`
 
-`defineType` reserves a type name (so it can't collide with builtins or other extensions) and
-carries its `format`/`validate`/`stringify` behaviour. _v1 note: the name is registered and
-governed, but full runtime construction of custom-typed values is not yet wired in the
-evaluator._
+`defineType` registers a type name (governed against builtins/extensions) and is **wired into
+the evaluator**: `name(value)` constructs a value, `validate(value, constraints)` runs at
+construction (a falsy result is a `CONSTRAINT_VIOLATION`), `stringify(value, format)` renders
+it at slot emission, and `defaultFormat` seeds its `format`. Custom transformers
+(`defineFunction` with `receiver: '<type>'`) apply to custom-typed receivers. Custom types do
+not participate in builtin operators (`+`, `<`, …) — there is no operator hook in v1.
 
 ```js
 import { defineType } from 'seebo';
@@ -129,8 +139,11 @@ import { defineType } from 'seebo';
 const Money = defineType('money', {
   category: 'base',
   defaultFormat: { currency: 'EUR' },
+  validate: (v) => typeof v === 'number' && v >= 0,
+  stringify: (v, fmt) => `${v.toFixed(2)} ${fmt.currency}`,
 });
 const engine = createEngine({ types: [Money] });
+// engine.stebo({ template: '${ money(1234.5) }' }) → output "1234.50 EUR"
 ```
 
 ## Name governance
