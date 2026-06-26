@@ -4,7 +4,7 @@
   "description": "Suspendable Evaluation Engine Built with Opus — a typed, suspendable expression/template engine with a pure synchronous core.",
   "type": "module",
   "license": "MIT",
-  "author": "Federico Boni <federicoboni67@gmail.com>",
+  "author": "Fedebb",
   "homepage": "https://github.com/BoniFederico/seebo#readme",
   "repository": {
     "type": "git",

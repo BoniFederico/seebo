@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write # enables npm provenance
 
 jobs:
   publish:
@@ -30,6 +29,6 @@ jobs:
         run: npm run check
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
