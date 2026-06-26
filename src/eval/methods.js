@@ -18,6 +18,7 @@ import {
   arrayGet,
   withFormat,
   withConstraints,
+  validate,
   DURATION_UNITS,
   PRECISION_ORDER,
 } from '../runtime/values.js';
@@ -37,7 +38,16 @@ import { SeeboError, DiagnosticCode } from '../util/errors.js';
 export function applyMethod(recv, name, args) {
   // Presentation / constraint builders are available on any value (SPEC §1.5).
   if (name === 'format') return withFormat(recv, asJson(arg(args, 0, name)));
-  if (name === 'constraints') return withConstraints(recv, asJson(arg(args, 0, name)));
+  if (name === 'constraints') {
+    // Attaching constraints to a concrete value validates it on the spot: a value that
+    // violates its own constraints surfaces as `CONSTRAINT_VIOLATION` in `run` (SPEC §1.10).
+    const constrained = withConstraints(recv, asJson(arg(args, 0, name)));
+    const diag = validate(constrained);
+    if (diag) {
+      throw new SeeboError(diag.message, { code: DiagnosticCode.CONSTRAINT_VIOLATION });
+    }
+    return constrained;
+  }
 
   switch (recv.type) {
     case 'string':
