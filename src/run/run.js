@@ -31,24 +31,26 @@ export const Status = Object.freeze({
 /** @typedef {'running'|'waiting'|'completed'|'failed'} StatusValue */
 
 /**
- * Serializable public state (SPEC §2.4 / IMPL §6.1). The ONLY form to persist.
+ * Serializable public state (SPEC §2.4 / IMPL §6.1). The ONLY form the host should
+ * persist or transmit between turns. Produced by {@link start}; transformed (never mutated)
+ * by {@link run}.
  * @typedef {Object} PublicState
- * @property {number} stateVersion
- * @property {string} template
- * @property {Record<string, import('../runtime/values.js').Value>} resolved
- * @property {import('../eval/evaluator.js').RequirementDescriptor[]} pending
- * @property {number} phase
- * @property {StatusValue} status
- * @property {string} [output]
- * @property {import('../util/errors.js').Diagnostic[]} [diagnostics]
+ * @property {number} stateVersion  Schema version; see {@link STATE_VERSION}.
+ * @property {string} template  Original template source as passed to {@link start}.
+ * @property {Record<string, import('../runtime/values.js').Value>} resolved  Values provided for pending requirements, keyed by requirement id.
+ * @property {import('../eval/evaluator.js').RequirementDescriptor[]} pending  Requirements not yet satisfied in the current phase.
+ * @property {number} phase  Monotonically increasing step counter; starts at `0`, incremented by each {@link run} call.
+ * @property {StatusValue} status  Current execution status; see {@link Status}.
+ * @property {string} [output]  Rendered text; present only when `status === 'completed'`.
+ * @property {import('../util/errors.js').Diagnostic[]} [diagnostics]  Diagnostics collected during the last step; present only when `status === 'failed'`.
  */
 
 /**
- * Internal, NON-serialized runtime state (IMPL §6.1). Not used by the slice's full
- * re-evaluation strategy beyond holding the freshly parsed AST.
+ * Internal runtime state (IMPL §6.1). NOT serialized; discarded after each {@link run} step.
+ * Holds the freshly parsed AST so v1's full re-evaluation strategy avoids re-parsing inline.
  * @typedef {Object} RuntimeState
- * @property {PublicState} pub
- * @property {import('../ast/nodes.js').Document} ast
+ * @property {PublicState} pub  The corresponding public state snapshot.
+ * @property {import('../ast/nodes.js').Document} ast  Parsed AST for the current template.
  */
 
 /**

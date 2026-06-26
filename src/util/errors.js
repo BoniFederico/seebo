@@ -43,24 +43,26 @@ export const DiagnosticCode = Object.freeze({
 });
 
 /**
- * Pipeline phases a diagnostic can belong to (IMPL Appendix A).
+ * Pipeline phase that produced a diagnostic (IMPL Appendix A).
  * @typedef {'createEngine'|'tokenize'|'parse'|'validate'|'analyze'|'run'|'driver'} Phase
  */
 
 /**
+ * Diagnostic severity level.
  * @typedef {'error'|'warning'|'info'} Severity
  */
 
 /**
  * Structured diagnostic (IMPL Appendix A). Canonical shape of non-exceptional feedback.
+ * Diagnostics are accumulate-able data; they are NOT thrown — use {@link SeeboError} for exceptions.
  * @typedef {Object} Diagnostic
- * @property {string}   code         Stable identifier (see {@link DiagnosticCode}).
- * @property {Severity} severity     Severity.
- * @property {Phase}    phase        Phase that produced the diagnostic.
- * @property {boolean}  recoverable  Can the phase keep going and accumulate more diagnostics?
- * @property {string}   message      Human text, already localized/redacted.
- * @property {{ start: number, end: number }} [position] Offset in the template, if textual.
- * @property {Record<string, unknown>} [data] Code-specific payload (e.g. `{ name }`).
+ * @property {string}   code         Stable identifier from {@link DiagnosticCode}. Never renamed.
+ * @property {Severity} severity     Severity level of the diagnostic.
+ * @property {Phase}    phase        Pipeline phase that produced this diagnostic.
+ * @property {boolean}  recoverable  `true` when the phase continued and may have accumulated more diagnostics.
+ * @property {string}   message      Human-readable text, already localized or redacted per policy.
+ * @property {{ start: number, end: number }} [position]  Byte offsets in the template source; absent for non-textual diagnostics.
+ * @property {Record<string, unknown>} [data]  Code-specific structured payload for programmatic inspection (e.g. `{ name }`).
  */
 
 /**
@@ -95,6 +97,7 @@ export function createDiagnostic(code, opts = {}) {
 /**
  * Base Seebo error. All engine exceptions derive from it, so the host can tell an
  * engine failure apart from an arbitrary runtime error.
+ * @extends {Error}
  */
 export class SeeboError extends Error {
   /**
@@ -117,6 +120,7 @@ export class SeeboError extends Error {
 /**
  * Engine configuration error (`createEngine`): reserved word, name conflict, invalid
  * config. Non-recoverable (IMPL Appendix A, `createEngine` phase).
+ * @extends {SeeboError}
  */
 export class EngineConfigError extends SeeboError {
   /**
@@ -136,6 +140,7 @@ export class EngineConfigError extends SeeboError {
 /**
  * Marker for functionality not implemented yet. Used by the v1 scaffolding placeholders;
  * it will disappear as the modules are completed.
+ * @extends {SeeboError}
  */
 export class NotImplementedError extends SeeboError {
   /** @param {string} what Human-readable name of the missing functionality. */

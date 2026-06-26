@@ -95,32 +95,36 @@ const TYPE_SET = new Set(Object.values(TypeName));
  */
 
 /**
- * Value: the immutable typed record flowing through evaluation (IMPL §4).
+ * Immutable typed record flowing through evaluation (IMPL §4).
+ * Always produced by a `make*` factory or {@link fromJs}; never constructed manually.
+ * Deeply frozen — mutating any property is a silent no-op.
  * @typedef {Object} Value
- * @property {string} type        One of {@link TypeName}.
- * @property {unknown} value       Internal canonical representation.
- * @property {Record<string, unknown>} format       How it stringifies.
- * @property {Record<string, unknown>} constraints  Validity rules.
+ * @property {string} type  One of {@link TypeName}.
+ * @property {unknown} value  Internal canonical JS representation (see IMPL §4.1 for per-type details).
+ * @property {Record<string, unknown>} format  Display options, merged from {@link DEFAULT_FORMATS}. Frozen.
+ * @property {Record<string, unknown>} constraints  Validity rules, merged from {@link DEFAULT_CONSTRAINTS}. Frozen.
  */
 
 /**
- * Typed descriptor produced by builders: `{ type, format, constraints, default? }`
- * (SPEC §1.7). `default` is a top-level field, NOT inside `constraints`.
+ * Typed descriptor produced by a {@link TypeBuilder}: `{ type, format, constraints, default? }`
+ * (SPEC §1.7). `default` is a top-level field, NOT nested inside `constraints`.
  * @typedef {Object} TypeDescriptor
- * @property {string} type
- * @property {Record<string, unknown>} [format]
- * @property {Record<string, unknown>} [constraints]
- * @property {unknown} [default]
+ * @property {string} type  One of {@link TypeName}.
+ * @property {Record<string, unknown>} [format]  Display options, merged from {@link DEFAULT_FORMATS}.
+ * @property {Record<string, unknown>} [constraints]  Validity rules, merged from {@link DEFAULT_CONSTRAINTS}.
+ * @property {unknown} [default]  Default value for the requirement; present only when `.default(d)` was called.
  */
 
 /**
- * Immutable type builder (clarifications §8). Fluent methods return NEW builders.
+ * Immutable type builder (clarifications §8). Every mutating method returns a NEW builder;
+ * the original is unchanged. End the chain with {@link TypeBuilder.toDescriptor} to obtain
+ * a {@link TypeDescriptor}.
  * @typedef {Object} TypeBuilder
- * @property {string} type
- * @property {(format: Record<string, unknown>) => TypeBuilder} format
- * @property {(constraints: Record<string, unknown>) => TypeBuilder} constraints
- * @property {(value: unknown) => TypeBuilder} default
- * @property {() => TypeDescriptor} toDescriptor
+ * @property {string} type  The base type name this builder targets.
+ * @property {(f: Record<string, unknown>) => TypeBuilder} format  Returns a new builder with `f` merged into the format options.
+ * @property {(c: Record<string, unknown>) => TypeBuilder} constraints  Returns a new builder with `c` merged into the constraint options.
+ * @property {(d: unknown) => TypeBuilder} default  Returns a new builder with a default value set.
+ * @property {() => TypeDescriptor} toDescriptor  Finalises and returns a frozen {@link TypeDescriptor}.
  */
 
 /* ----------------------------------------------------------------------------------- *
@@ -188,7 +192,13 @@ function makeValue(type, value, opts = {}) {
  * Factories (constructors from canonical JS inputs)
  * ----------------------------------------------------------------------------------- */
 
-/** @param {number} n @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable integer {@link Value}. Deeply frozen.
+ * @param {number} n  Must be a finite integer.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `n` is not a finite integer.
+ */
 export function makeInt(n, opts) {
   if (typeof n !== 'number' || !Number.isFinite(n) || !Number.isInteger(n)) {
     throw typeError(`int requires an integer number, got ${describe(n)}`);
@@ -196,7 +206,13 @@ export function makeInt(n, opts) {
   return makeValue('int', n, opts);
 }
 
-/** @param {number} n @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable float {@link Value}. Deeply frozen.
+ * @param {number} n  Must be a finite number.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `n` is not a finite number.
+ */
 export function makeFloat(n, opts) {
   if (typeof n !== 'number' || !Number.isFinite(n)) {
     throw typeError(`float requires a finite number, got ${describe(n)}`);
@@ -204,19 +220,38 @@ export function makeFloat(n, opts) {
   return makeValue('float', n, opts);
 }
 
-/** @param {boolean} b @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable bool {@link Value}. Deeply frozen.
+ * @param {boolean} b
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `b` is not a boolean.
+ */
 export function makeBool(b, opts) {
   if (typeof b !== 'boolean') throw typeError(`bool requires a boolean, got ${describe(b)}`);
   return makeValue('bool', b, opts);
 }
 
-/** @param {string} s @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable string {@link Value}. Deeply frozen.
+ * @param {string} s
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `s` is not a string.
+ */
 export function makeString(s, opts) {
   if (typeof s !== 'string') throw typeError(`string requires a string, got ${describe(s)}`);
   return makeValue('string', s, opts);
 }
 
-/** @param {number} seconds @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable duration {@link Value}. Canonical unit is seconds (may be fractional
+ * or negative). Deeply frozen.
+ * @param {number} seconds  Duration in seconds; must be a finite number.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `seconds` is not a finite number.
+ */
 export function makeDuration(seconds, opts) {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
     throw typeError(`duration requires a finite number of seconds, got ${describe(seconds)}`);
@@ -224,7 +259,14 @@ export function makeDuration(seconds, opts) {
   return makeValue('duration', seconds, opts);
 }
 
-/** @param {number} epochMs @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable datetime {@link Value}. Canonical representation is epoch
+ * milliseconds UTC (truncated to integer). Deeply frozen.
+ * @param {number} epochMs  Epoch milliseconds UTC; must be a finite number.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `epochMs` is not a finite number.
+ */
 export function makeDatetime(epochMs, opts) {
   if (typeof epochMs !== 'number' || !Number.isFinite(epochMs)) {
     throw typeError(`datetime requires a finite epoch-ms number, got ${describe(epochMs)}`);
@@ -232,7 +274,14 @@ export function makeDatetime(epochMs, opts) {
   return makeValue('datetime', Math.trunc(epochMs), opts);
 }
 
-/** @param {unknown} json @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable object {@link Value}. Input is deep-sanitized (see `sanitize.js`):
+ * `__proto__` dropped, non-plain/cyclic inputs rejected, depth/size bounded. Deeply frozen.
+ * @param {unknown} json  Plain JSON-compatible object.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `json` is not a plain object or fails sanitization.
+ */
 export function makeObject(json, opts) {
   const clean = sanitizeJson(json);
   if (clean === null || typeof clean !== 'object' || Array.isArray(clean)) {
@@ -241,7 +290,14 @@ export function makeObject(json, opts) {
   return makeValue('object', deepFreeze(clean), opts);
 }
 
-/** @param {unknown} items @param {{ format?: unknown, constraints?: unknown }} [opts] @returns {Value} */
+/**
+ * Creates an immutable array {@link Value}. Input is deep-sanitized (see `sanitize.js`):
+ * non-JSON/cyclic elements rejected, depth/size bounded. Deeply frozen.
+ * @param {unknown} items  Array of JSON-compatible items.
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `items` is not an array or fails sanitization.
+ */
 export function makeArray(items, opts) {
   const clean = sanitizeJson(items);
   if (!Array.isArray(clean)) throw typeError(`array requires an array, got ${describe(items)}`);
@@ -252,7 +308,12 @@ export function makeArray(items, opts) {
  * Guards and inference
  * ----------------------------------------------------------------------------------- */
 
-/** @param {unknown} x @returns {x is Value} */
+/**
+ * Returns `true` if `x` is a well-formed {@link Value} record.
+ * Does not verify that the `value` field satisfies type-specific invariants.
+ * @param {unknown} x
+ * @returns {x is Value}
+ */
 export function isValue(x) {
   return (
     !!x &&
@@ -265,7 +326,11 @@ export function isValue(x) {
   );
 }
 
-/** @param {Value} v @returns {boolean} */
+/**
+ * Returns `true` when `v` has type `'int'` or `'float'`.
+ * @param {Value} v
+ * @returns {boolean}
+ */
 export function isNumeric(v) {
   return v.type === 'int' || v.type === 'float';
 }
@@ -308,9 +373,12 @@ export function fromJs(input) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Structural equality for `==`/`!=` (SPEC §1.4: only between equal types). Comparing
- * different types is a type error.
- * @param {Value} a @param {Value} b @returns {boolean}
+ * Structural equality for `==`/`!=` (SPEC §1.4). Only defined between values of the same
+ * type; comparing different types is a type error.
+ * @param {Value} a
+ * @param {Value} b
+ * @returns {boolean}
+ * @throws {import('../util/errors.js').SeeboError}  If `a.type !== b.type`, or if either argument is not a {@link Value}.
  */
 export function equals(a, b) {
   ensureValue(a);
@@ -323,9 +391,12 @@ export function equals(a, b) {
 }
 
 /**
- * Ordering for `< <= > >=` (SPEC §1.4): numeric pairs (int/float, mixed), datetime pairs,
- * duration pairs. Returns -1, 0 or 1. Other combinations are a type error.
- * @param {Value} a @param {Value} b @returns {-1|0|1}
+ * Three-way ordering for `< <= > >=` (SPEC §1.4). Valid between numeric pairs (int/float,
+ * mixed), datetime pairs, and duration pairs. Returns `-1`, `0`, or `1`.
+ * @param {Value} a
+ * @param {Value} b
+ * @returns {-1|0|1}
+ * @throws {import('../util/errors.js').SeeboError}  If the type combination is not orderable, or if either argument is not a {@link Value}.
  */
 export function compare(a, b) {
   ensureValue(a);
@@ -373,10 +444,13 @@ function jsonEqual(a, b) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Checks a value against its own constraints. Returns a `CONSTRAINT_VIOLATION` diagnostic,
- * or `null` when valid.
+ * Validates a value against its own `constraints` field (SPEC §1.3 / §1.10).
+ * Returns a `CONSTRAINT_VIOLATION` {@link import('../util/errors.js').Diagnostic} when a
+ * constraint is violated, or `null` when the value is valid.
+ * Never throws; constraint failures are returned as diagnostics.
  * @param {Value} value
  * @returns {import('../util/errors.js').Diagnostic | null}
+ * @throws {import('../util/errors.js').SeeboError}  If `value` is not a {@link Value}.
  */
 export function validate(value) {
   ensureValue(value);
@@ -446,8 +520,13 @@ function violation(constraint, got) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Reads `key` from an object value, returning a typed value (prototype-pollution safe).
- * @param {Value} value @param {string} key @returns {Value}
+ * Reads `key` from an object {@link Value}, converting the raw JSON entry to a typed
+ * {@link Value} via {@link fromJs}. Prototype-pollution safe: rejects `__proto__` and
+ * missing keys.
+ * @param {Value} value  Must have `type === 'object'`.
+ * @param {string} key  Key to read.
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `value` is not an object value, `key` is not a string, or the key is missing.
  */
 export function objectGet(value, key) {
   if (value.type !== 'object') throw typeError(`cannot read a member of '${value.type}'`);
@@ -460,8 +539,12 @@ export function objectGet(value, key) {
 }
 
 /**
- * Reads index `i` from an array value, returning a typed value.
- * @param {Value} value @param {number} i @returns {Value}
+ * Reads index `i` from an array {@link Value}, converting the element to a typed
+ * {@link Value} via {@link fromJs}.
+ * @param {Value} value  Must have `type === 'array'`.
+ * @param {number} i  Zero-based integer index; must be within bounds.
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `value` is not an array value or `i` is out of bounds.
  */
 export function arrayGet(value, i) {
   if (value.type !== 'array') throw typeError(`cannot index '${value.type}'`);
@@ -477,8 +560,11 @@ export function arrayGet(value, i) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Returns a plain, JSON-safe snapshot of a value (defensive deep copy of object/array).
- * @param {Value} value @returns {Value}
+ * Returns a plain, JSON-safe snapshot of a {@link Value} suitable for storage or
+ * transmission (IMPL §6.1). Object/array `value` fields are deep-copied defensively.
+ * @param {Value} value
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `value` is not a {@link Value}.
  */
 export function serialize(value) {
   ensureValue(value);
@@ -495,9 +581,11 @@ export function serialize(value) {
 }
 
 /**
- * Rebuilds a value from an untrusted serialized snapshot, re-validating shape and
- * re-applying type defaults/sanitization.
- * @param {unknown} obj @returns {Value}
+ * Rebuilds a {@link Value} from an untrusted serialized snapshot (e.g. from storage),
+ * re-validating shape and re-applying type defaults and sanitization.
+ * @param {unknown} obj  Raw deserialized object (e.g. from `JSON.parse`).
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `obj` is not a valid serialized value or has an unknown type.
  */
 export function deserialize(obj) {
   if (!obj || typeof obj !== 'object') throw typeError('cannot deserialize: not an object');
@@ -514,10 +602,11 @@ export function deserialize(obj) {
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Creates an immutable type builder. `string()`, `int()`, ... return one of these; the
- * fluent methods return NEW builders without mutation (clarifications §8).
- * @param {string} type
+ * Creates a fresh {@link TypeBuilder} for `type`. The idiomatic starting point when
+ * building a {@link TypeDescriptor} programmatically (clarifications §8).
+ * @param {string} type  Must be a known {@link TypeName}.
  * @returns {TypeBuilder}
+ * @throws {import('../util/errors.js').SeeboError}  If `type` is unknown.
  */
 export function builder(type) {
   assertKnownType(type);

@@ -49,12 +49,12 @@ export const ExprKind = Object.freeze({
 /**
  * Root of the AST (IMPL §3.1). Carries the contract version.
  * @typedef {Object} Document
- * @property {number} astVersion
- * @property {Node[]} nodes
+ * @property {number} astVersion  Schema version; see {@link AST_VERSION} from `util/versions.js`.
+ * @property {Node[]} nodes  Top-level node sequence of the document.
  */
 
 /**
- * Union of document-level nodes.
+ * Union of document-level nodes. Discriminate on `.kind` (see {@link NodeKind}).
  * @typedef {TextNode | FormulaNode | CommentNode | MacroNode} Node
  */
 
@@ -99,6 +99,7 @@ export const ExprKind = Object.freeze({
 /**
  * Union of expression nodes (IMPL §3.1, extended with object/array literals which the
  * grammar uses as producer arguments and choice-list values, SPEC §1.3/§1.5/§1.7).
+ * Discriminate on `.kind` (see {@link ExprKind}).
  * @typedef {LitNode | RefNode | CallNode | MethodNode | MemberNode | UnaryNode | BinaryNode | TernaryNode | NamespaceNode | ObjectLitNode | ArrayLitNode} Expr
  */
 
@@ -107,8 +108,8 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} LitNode
  * @property {'Lit'} kind
  * @property {Position} position
- * @property {string} type
- * @property {unknown} value
+ * @property {string} type  One of the base literal-parseable Seebo types (e.g. `'int'`, `'string'`).
+ * @property {unknown} value  Parsed canonical JS value (number for int/float, string, boolean).
  */
 
 /**
@@ -116,7 +117,7 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} RefNode
  * @property {'Ref'} kind
  * @property {Position} position
- * @property {string} name
+ * @property {string} name  The identifier as it appears in the template source.
  */
 
 /**
@@ -125,8 +126,8 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} CallNode
  * @property {'Call'} kind
  * @property {Position} position
- * @property {string} callee
- * @property {Expr[]} args
+ * @property {string} callee  Name of the producer or `require`.
+ * @property {Expr[]} args  Positional arguments.
  */
 
 /**
@@ -134,9 +135,9 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} MethodNode
  * @property {'Method'} kind
  * @property {Position} position
- * @property {Expr} receiver
- * @property {string} name
- * @property {Expr[]} args
+ * @property {Expr} receiver  The value the method is called on.
+ * @property {string} name  Method name.
+ * @property {Expr[]} args  Positional arguments.
  */
 
 /**
@@ -144,8 +145,8 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} MemberNode
  * @property {'Member'} kind
  * @property {Position} position
- * @property {Expr} receiver
- * @property {string} key
+ * @property {Expr} receiver  The object value being accessed.
+ * @property {string} key  Static key name.
  */
 
 /**
@@ -153,8 +154,8 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} UnaryNode
  * @property {'Unary'} kind
  * @property {Position} position
- * @property {string} op
- * @property {Expr} arg
+ * @property {string} op  Operator string: `'not'` or `'-'`.
+ * @property {Expr} arg  Operand expression.
  */
 
 /**
@@ -163,9 +164,9 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} BinaryNode
  * @property {'Binary'} kind
  * @property {Position} position
- * @property {string} op
- * @property {Expr} left
- * @property {Expr} right
+ * @property {string} op  Operator string (e.g. `'+'`, `'=='`, `'and'`).
+ * @property {Expr} left  Left operand.
+ * @property {Expr} right  Right operand.
  */
 
 /**
@@ -174,9 +175,9 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} TernaryNode
  * @property {'Ternary'} kind
  * @property {Position} position
- * @property {Expr} cond
- * @property {Expr} then
- * @property {Expr} else
+ * @property {Expr} cond  Condition expression; must evaluate to `bool`.
+ * @property {Expr} then  Value when condition is true.
+ * @property {Expr} else  Value when condition is false.
  */
 
 /**
@@ -184,9 +185,9 @@ export const ExprKind = Object.freeze({
  * @typedef {Object} NamespaceNode
  * @property {'Namespace'} kind
  * @property {Position} position
- * @property {string} ns
- * @property {string} name
- * @property {Expr[]} args
+ * @property {string} ns  Library/namespace name (e.g. `'fake'`).
+ * @property {string} name  Function name within the namespace.
+ * @property {Expr[]} args  Positional arguments.
  */
 
 /**

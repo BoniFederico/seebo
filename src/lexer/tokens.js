@@ -36,6 +36,16 @@ export const TokenType = Object.freeze({
  */
 
 /**
+ * Options accepted by `tokenize` (IMPL §2).
+ * @typedef {Object} TokenizeOptions
+ * @property {Record<string, string>} [delimiters]  Override default slot delimiters.
+ * @property {boolean} [locations]  When `true`, attach non-normative `line`/`column` to each token's `position`.
+ * @property {(diagnostic: import('../util/errors.js').Diagnostic) => void} [onError]
+ *   Sink for recoverable lexical diagnostics. Called instead of throwing for recoverable errors.
+ *   The lexer never throws for recoverable errors. Must not throw itself.
+ */
+
+/**
  * Source span.
  *
  * **Only `start`/`end` offsets are normative. `line`/`column` metadata is optional,

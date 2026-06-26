@@ -21,42 +21,63 @@ export { renderValue };
 export const ResultKind = Object.freeze({ OK: 'Ok', SUSP: 'Susp', ERR: 'Err' });
 
 /**
+ * Successful evaluation outcome carrying the computed {@link import('../runtime/values.js').Value}.
  * @typedef {Object} Ok
  * @property {'Ok'} kind
- * @property {import('../runtime/values.js').Value} value
+ * @property {import('../runtime/values.js').Value} value  The computed value.
  */
+
 /**
+ * Suspended evaluation outcome: the expression encountered an unsatisfied requirement.
+ * The driver resolves the `need` and re-runs the machine.
  * @typedef {Object} Susp
  * @property {'Susp'} kind
- * @property {RequirementDescriptor} need
+ * @property {RequirementDescriptor} need  Descriptor of the unsatisfied requirement.
  */
+
 /**
+ * Failed evaluation outcome carrying a non-recoverable diagnostic.
  * @typedef {Object} Err
  * @property {'Err'} kind
- * @property {import('../util/errors.js').Diagnostic} diagnostic
+ * @property {import('../util/errors.js').Diagnostic} diagnostic  The evaluation error.
  */
-/** @typedef {Ok | Susp | Err} EvalResult */
 
 /**
- * Requirement descriptor (SPEC §1.6). Declared fields plus analyze-derived `phase`/
- * `options` (IMPL §9). Only `id`, `type`, `capability` are mandatory.
+ * Discriminated union of evaluator outcomes. Discriminate on `.kind` (see {@link ResultKind}).
+ * @typedef {Ok | Susp | Err} EvalResult
+ */
+
+/**
+ * Requirement descriptor (SPEC §1.6). Declared fields come from the template source;
+ * `phase`/`options` are enriched by `analyze` (IMPL §9). Only `id`, `type`, `capability`
+ * are mandatory.
  * @typedef {Object} RequirementDescriptor
- * @property {string} id
- * @property {import('../runtime/values.js').TypeDescriptor} type
- * @property {string} capability
- * @property {string} [label]
- * @property {string} [description]
- * @property {boolean} [optional]
- * @property {number} [priority]
- * @property {string} [group]
- * @property {Record<string, unknown>} [resolverHints]
- * @property {number} [phase]
- * @property {unknown[]} [options]
+ * @property {string} id  Unique identifier for the requirement within the template.
+ * @property {import('../runtime/values.js').TypeDescriptor} type  Expected value type and constraints.
+ * @property {string} capability  Capability name that can resolve this requirement.
+ * @property {string} [label]  Human-readable label shown to the end user.
+ * @property {string} [description]  Extended description for the end user.
+ * @property {boolean} [optional]  When `true`, the requirement may remain unresolved.
+ * @property {number} [priority]  Resolver scheduling hint (higher = more urgent).
+ * @property {string} [group]  Logical grouping name for UI or batching purposes.
+ * @property {Record<string, unknown>} [resolverHints]  Capability-specific hints for the resolver.
+ * @property {number} [phase]  Execution phase in which this requirement becomes active (set by `analyze`).
+ * @property {unknown[]} [options]  Allowed value options for constrained inputs (set by `analyze`).
  */
 
 /**
+ * Evaluation environment: the set of values already resolved for the current phase.
  * @typedef {Object} EvalEnv
- * @property {Record<string, import('../runtime/values.js').Value>} resolved
+ * @property {Record<string, import('../runtime/values.js').Value>} resolved  Map from requirement id to resolved {@link import('../runtime/values.js').Value}.
+ */
+
+/**
+ * A capability provider function: receives a {@link RequirementDescriptor} and returns
+ * the resolved value (synchronously or as a Promise).
+ * Must not throw; return `undefined` to indicate the requirement cannot be resolved.
+ * @callback CapabilityFn
+ * @param {RequirementDescriptor} req  The requirement to resolve.
+ * @returns {unknown | Promise<unknown>}
  */
 
 /**
