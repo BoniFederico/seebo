@@ -82,10 +82,10 @@ test('object/array values are deep-sanitized and deeply frozen', () => {
 
 test('factories reject invalid inputs with a typed error', () => {
   assert.throws(() => makeInt(1.5), SeeboError);
-  assert.throws(() => makeInt('1'), SeeboError);
+  assert.throws(() => makeInt(/** @type {any} */ ('1')), SeeboError);
   assert.throws(() => makeFloat(Infinity), SeeboError);
-  assert.throws(() => makeBool(1), SeeboError);
-  assert.throws(() => makeString(5), SeeboError);
+  assert.throws(() => makeBool(/** @type {any} */ (1)), SeeboError);
+  assert.throws(() => makeString(/** @type {any} */ (5)), SeeboError);
   assert.throws(() => makeObject([1, 2]), SeeboError); // array is not an object
   assert.throws(() => makeArray({ a: 1 }), SeeboError); // object is not an array
 });
@@ -103,10 +103,7 @@ test('int stringify with optional thousands separator', () => {
 test('float stringify honors precision and decimal separator (SPEC §1.3)', () => {
   assert.equal(stringify(makeFloat(1234.5)), '1234,50');
   assert.equal(stringify(makeFloat(1234.3456)), '1234,35'); // rounded to precision 2
-  assert.equal(
-    stringify(makeFloat(1234.5, { format: { thousands: '.' } })),
-    '1.234,50'
-  );
+  assert.equal(stringify(makeFloat(1234.5, { format: { thousands: '.' } })), '1.234,50');
   assert.equal(stringify(makeFloat(-0.5)), '-0,50');
 });
 
@@ -206,12 +203,18 @@ test('validate reports CONSTRAINT_VIOLATION with data', () => {
   assert.equal(d1?.code, 'CONSTRAINT_VIOLATION');
   assert.deepEqual(d1?.data, { constraint: 'min', got: 5 });
 
-  assert.equal(validate(makeString('ab', { constraints: { minLen: 3 } }))?.data.constraint, 'minLen');
   assert.equal(
-    validate(makeArray([1, 2, 9], { constraints: { values: [1, 2] } }))?.data.constraint,
+    validate(makeString('ab', { constraints: { minLen: 3 } }))?.data?.constraint,
+    'minLen'
+  );
+  assert.equal(
+    validate(makeArray([1, 2, 9], { constraints: { values: [1, 2] } }))?.data?.constraint,
     'values'
   );
-  assert.equal(validate(makeArray([1], { constraints: { maxLen: 0 } }))?.data.constraint, 'maxLen');
+  assert.equal(
+    validate(makeArray([1], { constraints: { maxLen: 0 } }))?.data?.constraint,
+    'maxLen'
+  );
 });
 
 /* ----------------------------------------------------------------------------------- *

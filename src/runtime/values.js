@@ -330,7 +330,8 @@ export function equals(a, b) {
 export function compare(a, b) {
   ensureValue(a);
   ensureValue(b);
-  if (isNumeric(a) && isNumeric(b)) return sign(/** @type {number} */ (a.value) - /** @type {number} */ (b.value));
+  if (isNumeric(a) && isNumeric(b))
+    return sign(/** @type {number} */ (a.value) - /** @type {number} */ (b.value));
   if (a.type === 'datetime' && b.type === 'datetime')
     return sign(/** @type {number} */ (a.value) - /** @type {number} */ (b.value));
   if (a.type === 'duration' && b.type === 'duration')
@@ -481,7 +482,12 @@ export function arrayGet(value, i) {
  */
 export function serialize(value) {
   ensureValue(value);
-  const out = { type: value.type, value: value.value, format: value.format, constraints: value.constraints };
+  const out = {
+    type: value.type,
+    value: value.value,
+    format: value.format,
+    constraints: value.constraints,
+  };
   if (value.type === 'object' || value.type === 'array') {
     out.value = sanitizeJson(value.value);
   }

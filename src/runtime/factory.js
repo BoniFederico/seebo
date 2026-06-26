@@ -5,5 +5,10 @@
  * `isNumeric`/`renderValue`).
  */
 
-export { makeInt as intValue, makeFloat as floatValue, makeString as stringValue, isNumeric } from './values.js';
+export {
+  makeInt as intValue,
+  makeFloat as floatValue,
+  makeString as stringValue,
+  isNumeric,
+} from './values.js';
 export { toText as renderValue } from './stringify.js';

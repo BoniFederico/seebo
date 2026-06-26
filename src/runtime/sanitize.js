@@ -67,15 +67,16 @@ export function sanitizeJson(input, limits = VALUE_LIMITS) {
     if (proto !== Object.prototype && proto !== null) {
       throw fail('only plain objects are allowed as object values');
     }
-    if (seen.has(v)) throw fail('circular reference in value');
-    seen.add(v);
+    const obj = /** @type {object} */ (v);
+    if (seen.has(obj)) throw fail('circular reference in value');
+    seen.add(obj);
     /** @type {Record<string, unknown>} */
     const out = {};
-    for (const key of Object.keys(/** @type {object} */ (v))) {
+    for (const key of Object.keys(obj)) {
       if (key === '__proto__') continue; // drop to prevent prototype pollution
-      out[key] = clone(/** @type {Record<string, unknown>} */ (v)[key], depth + 1);
+      out[key] = clone(/** @type {Record<string, unknown>} */ (obj)[key], depth + 1);
     }
-    seen.delete(v);
+    seen.delete(obj);
     return out;
   }
 
