@@ -34,6 +34,7 @@ import {
 } from '../runtime/values.js';
 import { toText } from '../runtime/stringify.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
+import { DEFAULT_LIMITS } from '../util/limits.js';
 import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
 import { collectDeclarations, extractRequirement } from './symbols.js';
@@ -92,6 +93,8 @@ const TYPE_NAMES = new Set([
  * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
  * @property {import('../index.js').EngineConfig} [config]
  * @property {() => Date} clock
+ * @property {number} [steps]  Evaluator step counter for the current pass (IMPL §13).
+ * @property {number} [maxSteps]  Step budget for the pass; when set, exceeding it yields `STEP_LIMIT_EXCEEDED`.
  */
 
 /* ----------------------------------------------------------------------------------- *
@@ -113,6 +116,8 @@ export function evaluateDocument(ast, resolved, config) {
     needs: new Map(),
     config,
     clock: config?.clock ?? (() => new Date()),
+    steps: 0,
+    maxSteps: config?.limits?.maxSteps ?? DEFAULT_LIMITS.maxSteps,
   };
 
   let output = '';
@@ -206,6 +211,17 @@ export function createEvaluator(ast, options = {}, driver) {
  * @returns {EvalResult}
  */
 export function evaluate(expr, ctx) {
+  // Step budget (IMPL §13): bounds work per pass against pathological expressions.
+  if (ctx.maxSteps !== undefined && (ctx.steps = (ctx.steps ?? 0) + 1) > ctx.maxSteps) {
+    return err(
+      DiagnosticCode.STEP_LIMIT_EXCEEDED,
+      expr,
+      `evaluation exceeded maxSteps (${ctx.maxSteps})`,
+      {
+        limit: ctx.maxSteps,
+      }
+    );
+  }
   const e = /** @type {any} */ (expr);
   switch (e.kind) {
     case 'Lit':
@@ -229,9 +245,7 @@ export function evaluate(expr, ctx) {
     case 'ArrayLit':
       return evalArrayLit(e, ctx);
     case 'Namespace':
-      return err(DiagnosticCode.UNKNOWN_FUNCTION, expr, `library '${e.ns}' is not implemented`, {
-        name: `${e.ns}.${e.name}`,
-      });
+      return evalNamespace(e, ctx);
     default:
       return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, `unsupported expression '${e.kind}'`);
   }
@@ -420,6 +434,13 @@ function evalCall(e, ctx) {
     if (args.blocking) return args.blocking;
     return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
   }
+  // Custom producer registered via defineFunction (SPEC §2.6), consulted only after builtins.
+  const producer = registryOf(ctx)?.getProducer(e.callee);
+  if (producer) {
+    const args = evalList(e.args, ctx);
+    if (args.blocking) return args.blocking;
+    return callExtension(producer, undefined, /** @type {any} */ (args.values), e);
+  }
   return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, {
     name: e.callee,
   });
@@ -431,7 +452,66 @@ function evalMethod(e, ctx) {
   if (recv.kind !== 'Ok') return recv;
   const args = evalList(e.args, ctx);
   if (args.blocking) return args.blocking;
-  return tryApply(() => applyMethod(recv.value, e.name, /** @type {any} */ (args.values)), e);
+  try {
+    return ok(applyMethod(recv.value, e.name, /** @type {any} */ (args.values)));
+  } catch (ex) {
+    // Builtins win; a custom transformer (defineFunction with a receiver) is consulted only
+    // when the builtin dispatch reports the method as unknown (SPEC §2.6).
+    const custom =
+      ex instanceof SeeboError && ex.code === DiagnosticCode.UNKNOWN_METHOD
+        ? registryOf(ctx)?.getTransformer(recv.value.type, e.name)
+        : undefined;
+    if (custom) return callExtension(custom, recv.value, /** @type {any} */ (args.values), e);
+    return errFrom(ex, e);
+  }
+}
+
+/** @param {import('../ast/nodes.js').NamespaceNode} e @param {EvalContext} ctx @returns {EvalResult} */
+function evalNamespace(e, ctx) {
+  const fn = registryOf(ctx)?.getLibraryFn(e.ns, e.name);
+  if (!fn) {
+    return err(
+      DiagnosticCode.UNKNOWN_FUNCTION,
+      e,
+      `library function '${e.ns}.${e.name}' is not registered`,
+      {
+        name: `${e.ns}.${e.name}`,
+      }
+    );
+  }
+  const args = evalList(e.args, ctx);
+  if (args.blocking) return args.blocking;
+  return callExtension(fn, undefined, /** @type {any} */ (args.values), e);
+}
+
+/** Reads the extension registry from the evaluation context, if any. @param {EvalContext} ctx @returns {import('../runtime/registry.js').Registry | undefined} */
+function registryOf(ctx) {
+  return /** @type {any} */ (ctx.config)?.registry;
+}
+
+/**
+ * Invokes a registered extension (`defineFunction`/`defineLibrary`) over plain JS values and
+ * wraps the result back into a typed {@link import('../runtime/values.js').Value} via
+ * {@link fromJs} (SPEC §2.6). Extension code never sees internal `Value`s.
+ * @param {{ arity?: { min: number, max: number }, eval: (...args: any[]) => unknown }} def
+ * @param {import('../runtime/values.js').Value | undefined} self  Receiver for a transformer; `undefined` for a producer/library fn.
+ * @param {import('../runtime/values.js').Value[]} args  Evaluated argument values.
+ * @param {import('../ast/nodes.js').Expr} node
+ * @returns {EvalResult}
+ */
+function callExtension(def, self, args, node) {
+  if (def.arity) {
+    const n = args.length;
+    if (n < def.arity.min || n > def.arity.max) {
+      return err(DiagnosticCode.ARITY_MISMATCH, node, 'wrong number of arguments', {
+        expected: def.arity,
+        got: n,
+      });
+    }
+  }
+  const jsArgs = args.map((v) => v.value);
+  const callArgs = self ? [self.value, ...jsArgs] : jsArgs;
+  return tryApply(() => fromJs(def.eval(...callArgs)), node);
 }
 
 /** @param {import('../ast/nodes.js').MemberNode} e @param {EvalContext} ctx */
@@ -443,6 +523,8 @@ function evalMember(e, ctx) {
 
 /** @param {import('../ast/nodes.js').ObjectLitNode} e @param {EvalContext} ctx */
 function evalObjectLit(e, ctx) {
+  // `__proto__` keys are skipped (see below) and makeObject re-sanitizes, so a plain
+  // accumulator is safe and keeps object values as ordinary POJOs.
   /** @type {Record<string, unknown>} */
   const out = {};
   /** @type {EvalResult|null} */

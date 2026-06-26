@@ -1,0 +1,117 @@
+# Security model
+
+How Seebo stays safe to run on **untrusted templates and untrusted data**, including on the
+client (SPEC §1.11/§2.2, IMPL §13). It documents the threat model, the configurable limits,
+the prototype-pollution protections, and what is explicitly out of scope.
+
+## Threat model
+
+Seebo is designed so the engine can execute **untrusted template source** and **untrusted
+resolved data** without compromising the host:
+
+- **Termination is guaranteed.** The language is not Turing-complete (no user loops/recursion,
+  bounded inclusion). Every limit below has a finite default, so evaluation always halts.
+- **The core is pure and synchronous.** `tokenize`/`parse`/`validate`/`analyze`/`run` perform
+  no I/O and touch no ambient authority (no `eval`/`Function`, no `globalThis`/`process`, no
+  network or filesystem). The **only** asynchronous, outside-touching component is the driver,
+  and it reaches the world solely through the **capabilities** the host registers.
+- **Trust boundary.** The frontend may run the engine for UX, but the backend remains the
+  authority that re-runs and re-validates the authoritative output. Because `run` is pure and
+  `PublicState` is serializable, a conversation can be started on the client and finished and
+  verified on the server with the same code.
+
+Trusted vs untrusted:
+
+| Surface                              | Trust       | Notes                                                     |
+| ------------------------------------ | ----------- | --------------------------------------------------------- |
+| Template source                      | untrusted   | bounded + validated; cannot reach globals or run code     |
+| Resolved data / capability values    | untrusted   | sanitized, type/constraint-checked before entering state  |
+| `define*` extensions, capabilities   | **trusted** | host code registered at `createEngine`; receives plain JS |
+| `policy` / `limits` / `clock`/`seed` | **trusted** | host configuration                                        |
+
+## Configurable limits
+
+All limits live in `config.limits` and have reasonable defaults
+([`src/util/limits.js`](../src/util/limits.js)). The four normative limits of SPEC §2.2 are
+kept; the rest are additive hardening guards (IMPL §13, non-breaking per §14). When a limit is
+exceeded the engine fails with a **specific diagnostic code** — never a silent truncation or a
+crash.
+
+| Limit             | Default   | Enforced in | Diagnostic code                | Guards against                    |
+| ----------------- | --------- | ----------- | ------------------------------ | --------------------------------- |
+| `maxInputBytes`   | 1 000 000 | parse       | `INPUT_LIMIT_EXCEEDED`         | huge template source              |
+| `maxTokens`       | 100 000   | parse       | `TOKEN_LIMIT_EXCEEDED`         | token-count blow-up               |
+| `maxNodes`        | 50 000    | parse       | `NODE_LIMIT_EXCEEDED`          | AST-size blow-up                  |
+| `maxNestingDepth` | 200       | parse       | `NESTING_LIMIT_EXCEEDED`       | deep nesting → stack overflow     |
+| `maxSteps`        | 1 000 000 | run         | `STEP_LIMIT_EXCEEDED`          | expensive evaluation per pass     |
+| `maxDepth`        | 20        | expand      | `DEPTH_EXCEEDED`               | deep/recursive template inclusion |
+| `maxPhases`       | 10        | driver      | `MAX_PHASES_EXCEEDED`          | non-terminating conversation loop |
+| `timeoutMs`       | 2000      | driver      | `TIMEOUT` / `CAPABILITY_ERROR` | slow/hung capability provider     |
+| `maxOutputBytes`  | 1 000 000 | (reserved)  | `OUTPUT_LIMIT_EXCEEDED`        | oversized rendered output         |
+
+How a breach surfaces:
+
+- **Parse-time limits** (`INPUT`/`TOKEN`/`NODE`/`NESTING`) make `engine.parse` **throw** a
+  coded `SeeboError`; through `engine.run` the same becomes `status: 'failed'` with that code
+  in `diagnostics` (and likewise for `validate`, which never throws).
+- **`maxSteps`** is checked per `evaluate` call; on breach the pass yields `STEP_LIMIT_EXCEEDED`
+  and `run` returns `status: 'failed'`.
+- **`maxDepth`** (inclusion) is enforced by `expand`; `stebo` turns it into a `failed` state.
+- **`maxPhases`/`timeoutMs`** are enforced by the async driver.
+
+Limits are off the hot path: a normal template parses and evaluates well under every default.
+
+## Prototype-pollution protection
+
+Untrusted data and untrusted requirement ids never reach `Object.prototype`:
+
+- **JSON sanitization** ([`src/runtime/sanitize.js`](../src/runtime/sanitize.js)): object/array
+  values are deep-cloned into fresh JSON-only structures. `__proto__` keys are **dropped**, and
+  every kept key is created with `Object.defineProperty` (data descriptor), so an inherited
+  setter can never run. Non-plain objects (class instances, `Date`, `Map`), functions, symbols,
+  bigint, non-finite numbers and circular references are rejected; depth/size are bounded.
+- **Object literals** in templates skip `__proto__` and are re-sanitized by `makeObject`.
+- **Requirement-id maps** (`PublicState.resolved`, the driver's satisfied set) are populated
+  with a `safeSet` helper that uses `Object.defineProperty`, so a requirement declared as
+  `__proto__` (or any reserved key) creates a plain own property instead of mutating the
+  prototype — while keeping `PublicState` an ordinary serializable POJO.
+- **Member access** (`objectGet`) refuses `__proto__` and only reads own properties.
+
+The engine performs **no indiscriminate global access**: no `eval`/`new Function`, no
+`globalThis`/`process`/`require`/dynamic `import` in the evaluation path. Extension code
+(`define*`, capabilities) is trusted host code and receives only plain JS values; its results
+are re-wrapped and sanitized via `fromJs`, so an extension cannot inject an untyped or
+unsanitized value into the runtime.
+
+## Name governance
+
+`createEngine` validates every introduced name against the reserved words (`RESERVED_NAME`) and
+for uniqueness in its namespace (`NAME_CONFLICT`), failing fast with `EngineConfigError`. This
+prevents extensions from shadowing builtins or each other (SPEC §1.5/§2.6).
+
+## Capability authorization
+
+Capabilities are the only path to sensitive data, so their use is governed by `policy`
+(SPEC §2.2, IMPL §13), checked **before** a provider runs:
+
+- `allowedCapabilities` — hard allow-list; an unlisted capability is `CAPABILITY_FORBIDDEN`.
+- `capabilityRules[cap].allowFrom: 'trusted'` — forbids the capability when the template's
+  `policy.trustLevel` is not `'trusted'` (`CAPABILITY_FORBIDDEN`).
+- `redact` — values of listed capabilities are masked in diagnostics/audit (incl. `InvalidValue`).
+- `audit` — a hook invoked per capability resolution **without** the value in clear.
+
+A provider value is always validated against the requirement's declared type/constraints; an
+invalid value never enters `resolved` (`CAPABILITY_INVALID_VALUE`).
+
+## Out of scope (v1)
+
+- **Per-capability `timeoutMs` of synchronous providers.** The timeout bounds awaited promises;
+  a provider that blocks the event loop synchronously is the host's responsibility.
+- **CPU/memory quotas beyond the documented limits.** The limits bound work proportionally but
+  are not a hard sandbox; run untrusted templates in an appropriately isolated process if you
+  need OS-level guarantees.
+- **`maxOutputBytes` enforcement** is reserved (the code exists; wiring lands with streaming).
+- **Custom-type runtime construction** is not yet wired (the type name is reserved/validated
+  only — see [`USAGE.md`](USAGE.md)).
+- **Secrecy of trusted extension code.** `define*`/capabilities are trusted by definition; the
+  engine does not sandbox them.

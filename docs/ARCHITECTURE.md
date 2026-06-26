@@ -111,6 +111,27 @@ resolve → clean up_ (SPEC §2.5). `stebo` chains them:
 > expand aggregators first), so requirements imported via `ABSORB`/`MERGE` are not yet seen
 > by the static passes — a known limitation to lift once `expand` feeds the symbol table.
 
+### Extensibility: the registry (SPEC §2.6)
+
+`createEngine` builds one immutable [`Registry`](../src/runtime/registry.js) from the config's
+`types`/`functions`/`macros`/`libraries`/`capabilities` and stores it on the normalized config.
+It is the single read-only source of custom vocabulary, consulted by:
+
+- the **parser** — library namespaces (enables `Namespace` nodes) and custom macro families;
+- the **evaluator** — custom producers (`name(...)`), transformers (`recv.name(...)`, only
+  when no builtin matches) and library functions (`ns.fn(...)`). Extension `eval` runs over
+  **plain JS values** and its result is re-wrapped via `fromJs`, so extensions never touch
+  internal `Value`s and cannot inject untyped data;
+- the **driver** — the registered capability set, plus the trust policy (`policy.trustLevel`
+  vs `capabilityRules[cap].allowFrom`) checked **before** a provider runs.
+
+**Name governance** (SPEC §1.5) happens while building the registry: every introduced name is
+checked against the reserved words (`RESERVED_NAME`) and for uniqueness in its namespace
+(`NAME_CONFLICT`) — producers/types/libraries/capabilities share one namespace, macros another,
+transformers are keyed per receiver type. A violation throws `EngineConfigError` at
+`createEngine`. The `define*` factories return frozen descriptors; see
+[`USAGE.md`](USAGE.md) for examples.
+
 ## Module responsibilities
 
 Each module is organized as **named contract file(s)** (the source of truth for shapes
@@ -121,7 +142,7 @@ and signatures) plus an `index.js` **barrel** that re-exports them.
 | `src/lexer/`    | `tokens.js` + `lexer.js`   | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant) | IMPL §2          |
 | `src/ast/`      | `nodes.js`                 | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)             | IMPL §3.1        |
 | `src/parser/`   | `parser.js`                | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`           | IMPL §3          |
-| `src/runtime/`  | `values.js`                | `Value` model, type/format/constraints shapes, builders                      | IMPL §4          |
+| `src/runtime/`  | `values.js`, `registry.js` | `Value` model + the extension `Registry` (custom vocab, name governance)     | IMPL §4, §3      |
 | `src/eval/`     | `evaluator.js`             | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`           | IMPL §5          |
 | `src/run/`      | `run.js`                   | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`             | IMPL §6          |
 | `src/validate/` | `validate.js`              | static diagnostics (undeclared names, arity, types, capabilities)            | IMPL §8          |
@@ -141,6 +162,16 @@ Three independently-versioned contracts cross the engine↔application boundary:
 
 All start at `1` (clarifications §11). State migrators (`src/util/versions.js#migrations`)
 are an empty, future-ready list in v1.
+
+## Security & limits
+
+The engine runs untrusted templates and untrusted data. Configurable resource limits
+([`src/util/limits.js`](../src/util/limits.js)) bound every phase and fail with a specific
+diagnostic code (`INPUT_LIMIT_EXCEEDED`, `TOKEN_LIMIT_EXCEEDED`, `NODE_LIMIT_EXCEEDED`,
+`NESTING_LIMIT_EXCEEDED` at parse; `STEP_LIMIT_EXCEEDED` at run; `DEPTH_EXCEEDED`,
+`MAX_PHASES_EXCEEDED`, `TIMEOUT` around the driver). Prototype pollution is blocked at the
+data boundary (sanitizer + `safeSet`), and the core uses no ambient globals or `eval`. The
+full threat model, limit table and out-of-scope notes are in [`SECURITY.md`](SECURITY.md).
 
 ## Execution model (the conversation)
 

@@ -68,7 +68,7 @@ export function start(template, initialValues, _config) {
   const resolved = {};
   for (const [id, raw] of Object.entries(initialValues ?? {})) {
     if (raw === undefined) continue;
-    resolved[id] = fromJs(raw);
+    safeSet(resolved, id, fromJs(raw));
   }
   return {
     stateVersion: STATE_VERSION,
@@ -105,6 +105,16 @@ export function run(state, config) {
     return { ...state, phase, status: Status.WAITING, pending: r.pending, output: undefined };
   }
   return { ...state, phase, status: Status.COMPLETED, pending: [], output: r.output };
+}
+
+/**
+ * Sets an own, enumerable property without triggering the `__proto__` setter — so an
+ * untrusted key (e.g. a requirement declared as `__proto__`) can never pollute the prototype
+ * while keeping `resolved` a plain serializable POJO (IMPL §6.1 / §13).
+ * @param {Record<string, unknown>} obj @param {string} key @param {unknown} value
+ */
+export function safeSet(obj, key, value) {
+  Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
 }
 
 /**

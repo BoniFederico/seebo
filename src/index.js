@@ -14,8 +14,12 @@ import { analyze as _analyze } from './analyze/index.js';
 import { start as _start, run as _run } from './run/index.js';
 import { expand as _expand, finalize as _finalize } from './macros/index.js';
 import { drive as _drive, stebo as _stebo } from './driver/index.js';
-import { NotImplementedError } from './util/errors.js';
+import { createRegistry } from './runtime/registry.js';
+import { EngineConfigError } from './util/errors.js';
+import { DEFAULT_LIMITS } from './util/limits.js';
 import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util/versions.js';
+
+export { DEFAULT_LIMITS };
 
 export { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION };
 export { DiagnosticCode, createDiagnostic, SeeboError, EngineConfigError } from './util/errors.js';
@@ -81,17 +85,6 @@ export const DEFAULT_DELIMITERS = Object.freeze({
 });
 
 /**
- * Default limits (SPEC §2.2).
- * @type {Readonly<Record<string, number>>}
- */
-export const DEFAULT_LIMITS = Object.freeze({
-  maxDepth: 20,
-  maxPhases: 10,
-  maxOutputBytes: 1_000_000,
-  timeoutMs: 2000,
-});
-
-/**
  * Optimizations: all off in v1 (clarifications §3). They remain accepted in the config.
  * @type {Readonly<Record<string, boolean>>}
  */
@@ -106,10 +99,10 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * Engine configuration (SPEC §2.2). Simplified shape for v1; non-normative fields are
  * still accepted but inert.
  * @typedef {Object} EngineConfig
- * @property {string[]} [types]  Application-defined type names.
- * @property {Array<unknown>} [functions]  Application-defined functions/producers/transformers. // TODO(doc): narrow once function registration API is stable
- * @property {Array<unknown>} [macros]  Application-defined macros. // TODO(doc): narrow once macro registration API is stable
- * @property {string[]} [libraries]  Library/namespace names to enable (e.g. `'fake'`).
+ * @property {Array<string | TypeExtensionDef>} [types]  Application-defined types (from {@link defineType}).
+ * @property {Array<FunctionExtensionDef>} [functions]  Application-defined producers/transformers (from {@link defineFunction}).
+ * @property {Array<MacroExtensionDef>} [macros]  Application-defined macros (from {@link defineMacro}).
+ * @property {Array<string | LibraryExtensionDef>} [libraries]  Library namespaces to enable (name or {@link defineLibrary} descriptor).
  * @property {Record<string, import('./eval/evaluator.js').CapabilityFn>} [capabilities]  Capability providers keyed by name.
  * @property {EnginePolicy} [policy]  Runtime policy (allowlists, audit, redact, retry).
  * @property {string} [locale]  BCP-47 locale for formatting. Default: `'en-US'`.
@@ -127,23 +120,87 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * @property {string[]} [allowedTypes]  Restrict which types the template may use.
  * @property {string[]} [allowedFunctions]  Restrict which functions the template may call.
  * @property {string[]} [allowedCapabilities]  Restrict which capabilities the template may require.
+ * @property {'trusted'|'untrusted'} [trustLevel]  Trust level of the template. Default: `'untrusted'`.
+ * @property {Record<string, CapabilityRule>} [capabilityRules]  Per-capability authorization rules.
  * @property {string[]} [redact]  Requirement ids whose resolved values are redacted from diagnostics.
  * @property {(event: Record<string, unknown>) => void} [audit]  Audit hook called for each capability resolution. Default: noop.
  * @property {{ attempts: number, backoffMs: number }} [retry]  Retry policy. Default: `{ attempts: 0, backoffMs: 0 }` (no retry).
  */
 
 /**
- * Fully resolved config produced by {@link normalizeConfig}. All optional fields from
- * {@link EngineConfig} that have defaults are guaranteed to be present.
- * @typedef {EngineConfig & { locale: string, clock: () => Date, capabilities: Record<string, import('./eval/evaluator.js').CapabilityFn>, delimiters: Record<string, string>, limits: Record<string, number>, optimizations: Record<string, boolean>, policy: EnginePolicy & { audit: (event: Record<string, unknown>) => void, retry: { attempts: number, backoffMs: number } } }} NormalizedConfig
+ * Per-capability authorization rule (SPEC §2.2, IMPL §13). Applied **before** the provider
+ * is invoked, so a forbidden capability never runs.
+ * @typedef {Object} CapabilityRule
+ * @property {'trusted'|'untrusted'} [allowFrom]  Minimum template `trustLevel` allowed to use it.
+ * @property {boolean} [audit]  When `true`, audit every invocation of this capability.
+ */
+
+/* ----------------------------------------------------------------------------------- *
+ * Extension descriptors (SPEC §2.6). Produced by the `define*` factories and passed to
+ * `createEngine`; the registry validates and indexes them.
+ * ----------------------------------------------------------------------------------- */
+
+/**
+ * Custom data type descriptor (SPEC §2.6). Registered/validated by name; full runtime
+ * construction wiring is a future extension (v1 reserves the name in the producer namespace).
+ * @typedef {Object} TypeExtensionDef
+ * @property {'type'} kind
+ * @property {string} name
+ * @property {string} [category]
+ * @property {Record<string, unknown>} [defaultFormat]
+ * @property {(value: unknown, constraints: Record<string, unknown>) => boolean} [validate]
+ * @property {(value: unknown, format: Record<string, unknown>) => string} [stringify]
  */
 
 /**
- * Normalizes the config by applying the documented defaults. Pure, deterministic; does
- * not yet validate names/reserved words (that will be part of the language implementation).
+ * Custom function descriptor (SPEC §2.6): a producer (no `receiver`) or a transformer
+ * (method on `receiver` type). See {@link import('./runtime/registry.js').FunctionDef}.
+ * @typedef {Object} FunctionExtensionDef
+ * @property {'function'} kind
+ * @property {string} name
+ * @property {string} [receiver]
+ * @property {{ min: number, max: number }} [arity]
+ * @property {(...args: any[]) => unknown} eval
+ */
+
+/**
+ * Custom macro descriptor (SPEC §2.6): an aggregator (pre-pass) or layout (post-pass) macro.
+ * @typedef {Object} MacroExtensionDef
+ * @property {'macro'} kind
+ * @property {string} name
+ * @property {'aggregator'|'layout'} [family]
+ * @property {'expand'|'finalize'} [phase]
+ */
+
+/**
+ * Custom capability descriptor (SPEC §2.6). Register its `resolve` under the matching key
+ * of {@link EngineConfig} `capabilities` (the map is the wiring point used by the driver).
+ * @typedef {Object} CapabilityExtensionDef
+ * @property {'capability'} kind
+ * @property {string} name
+ * @property {(req: import('./eval/evaluator.js').RequirementDescriptor) => unknown | Promise<unknown>} resolve
+ */
+
+/**
+ * Custom library/namespace descriptor (SPEC §2.6), e.g. `geo.*`.
+ * @typedef {Object} LibraryExtensionDef
+ * @property {'library'} kind
+ * @property {string} name
+ * @property {Record<string, import('./runtime/registry.js').LibraryFnDef>} [functions]
+ */
+
+/**
+ * Fully resolved config produced by {@link normalizeConfig}. All optional fields from
+ * {@link EngineConfig} that have defaults are guaranteed to be present.
+ * @typedef {EngineConfig & { locale: string, clock: () => Date, capabilities: Record<string, import('./eval/evaluator.js').CapabilityFn>, delimiters: Record<string, string>, limits: Record<string, number>, optimizations: Record<string, boolean>, registry: import('./runtime/registry.js').Registry, policy: EnginePolicy & { trustLevel: 'trusted'|'untrusted', capabilityRules: Record<string, CapabilityRule>, audit: (event: Record<string, unknown>) => void, retry: { attempts: number, backoffMs: number } } }} NormalizedConfig
+ */
+
+/**
+ * Normalizes the config by applying the documented defaults. Pure and deterministic; name
+ * governance (reserved words, uniqueness) is enforced separately by {@link createRegistry}.
  *
  * @param {EngineConfig} [config]
- * @returns {NormalizedConfig}
+ * @returns {Omit<NormalizedConfig, 'registry'>}
  */
 export function normalizeConfig(config = {}) {
   const policy = config.policy ?? {};
@@ -159,6 +216,8 @@ export function normalizeConfig(config = {}) {
       allowedTypes: policy.allowedTypes,
       allowedFunctions: policy.allowedFunctions,
       allowedCapabilities: policy.allowedCapabilities,
+      trustLevel: policy.trustLevel ?? 'untrusted',
+      capabilityRules: policy.capabilityRules ?? {},
       redact: policy.redact,
       audit: policy.audit ?? (() => {}),
       retry: policy.retry ?? { attempts: 0, backoffMs: 0 },
@@ -191,7 +250,10 @@ export function normalizeConfig(config = {}) {
  * @returns {Engine}
  */
 export function createEngine(config = {}) {
-  const cfg = normalizeConfig(config);
+  // Name governance runs first (SPEC §1.5/§2.6): a reserved/duplicate name fails here.
+  const registry = createRegistry(config);
+  /** @type {NormalizedConfig} */
+  const cfg = { ...normalizeConfig(config), registry };
 
   /** @type {Engine} */
   const engine = {
@@ -232,57 +294,82 @@ export const builtins = Object.freeze({
 export { migrations };
 
 /**
- * Defines a new data type (SPEC §2.6). v1 placeholder — always throws.
- * @param {string} _name  Unique type name; must not clash with {@link RESERVED_WORDS}.
- * @param {Record<string, unknown>} _def  Type definition descriptor.
- * @returns {never}
- * @throws {import('./util/errors.js').NotImplementedError}  Always in v1.
+ * Defines a new data type (SPEC §2.6). Returns a frozen descriptor to place in
+ * `config.types`; the name is validated/reserved by {@link createEngine}.
+ * @param {string} name  Unique type name; must not clash with {@link RESERVED_WORDS}.
+ * @param {Omit<TypeExtensionDef, 'kind'|'name'>} [def]  Type behaviour (format/validate/stringify).
+ * @returns {TypeExtensionDef}
+ * @throws {EngineConfigError}  If `name` is not a non-empty string.
  */
-export function defineType(_name, _def) {
-  throw new NotImplementedError('defineType');
+export function defineType(name, def = {}) {
+  requireName(name, 'type');
+  return Object.freeze({ kind: 'type', name, ...def });
 }
 
 /**
- * Defines a new function, producer or transformer (SPEC §2.6). v1 placeholder — always throws.
- * @param {string} _name  Unique function name; must not clash with {@link RESERVED_WORDS}.
- * @param {Record<string, unknown>} _def  Function definition descriptor.
- * @returns {never}
- * @throws {import('./util/errors.js').NotImplementedError}  Always in v1.
+ * Defines a new function — a producer (no `receiver`) or a transformer/method (on a
+ * `receiver` type), SPEC §2.6. Returns a frozen descriptor for `config.functions`. The
+ * `eval` implementation receives plain JS values and returns a plain JS value.
+ * @param {string} name  Unique function name; must not clash with {@link RESERVED_WORDS}.
+ * @param {Omit<FunctionExtensionDef, 'kind'|'name'>} [def]  Function behaviour (`receiver?`, `arity?`, `eval`).
+ * @returns {FunctionExtensionDef}
+ * @throws {EngineConfigError}  If `name`/`eval` are missing or invalid.
  */
-export function defineFunction(_name, _def) {
-  throw new NotImplementedError('defineFunction');
+export function defineFunction(name, def) {
+  requireName(name, 'function');
+  if (!def || typeof def.eval !== 'function') {
+    throw new EngineConfigError(`defineFunction('${name}') requires an 'eval' function`);
+  }
+  return Object.freeze({ kind: 'function', name, ...def });
 }
 
 /**
- * Defines a new macro, aggregator or layout (SPEC §2.6). v1 placeholder — always throws.
- * @param {string} _name  Unique macro name; must not clash with {@link RESERVED_WORDS}.
- * @param {Record<string, unknown>} _def  Macro definition descriptor.
- * @returns {never}
- * @throws {import('./util/errors.js').NotImplementedError}  Always in v1.
+ * Defines a new macro — an aggregator (pre-pass) or layout (post-pass), SPEC §2.6. Returns
+ * a frozen descriptor for `config.macros`.
+ * @param {string} name  Unique macro name; must not clash with {@link RESERVED_WORDS}.
+ * @param {Omit<MacroExtensionDef, 'kind'|'name'>} [def]  `family`/`phase` of the macro.
+ * @returns {MacroExtensionDef}
+ * @throws {EngineConfigError}  If `name` is not a non-empty string.
  */
-export function defineMacro(_name, _def) {
-  throw new NotImplementedError('defineMacro');
+export function defineMacro(name, def = {}) {
+  requireName(name, 'macro');
+  return Object.freeze({ kind: 'macro', name, ...def });
 }
 
 /**
- * Defines a new capability (SPEC §2.6). v1 placeholder — always throws.
- * @param {string} _name  Unique capability name.
- * @param {Record<string, unknown>} _def  Capability definition descriptor.
- * @returns {never}
- * @throws {import('./util/errors.js').NotImplementedError}  Always in v1.
+ * Defines a new capability (SPEC §2.6). Returns a frozen descriptor; register its `resolve`
+ * under the matching key of `config.capabilities` (the driver's wiring point).
+ * @param {string} name  Unique capability name; must not clash with {@link RESERVED_WORDS}.
+ * @param {Omit<CapabilityExtensionDef, 'kind'|'name'>} [def]  Must carry a `resolve` provider.
+ * @returns {CapabilityExtensionDef}
+ * @throws {EngineConfigError}  If `name`/`resolve` are missing or invalid.
  */
-export function defineCapability(_name, _def) {
-  throw new NotImplementedError('defineCapability');
+export function defineCapability(name, def) {
+  requireName(name, 'capability');
+  if (!def || typeof def.resolve !== 'function') {
+    throw new EngineConfigError(`defineCapability('${name}') requires a 'resolve' function`);
+  }
+  return Object.freeze({ kind: 'capability', name, ...def });
 }
 
 /**
- * Defines a library/namespace (SPEC §2.6), e.g. `fake.*` (clarifications §4).
- * v1 placeholder — always throws.
- * @param {string} _name  Unique library/namespace name.
- * @param {Record<string, unknown>} _def  Library definition descriptor.
- * @returns {never}
- * @throws {import('./util/errors.js').NotImplementedError}  Always in v1.
+ * Defines a library/namespace (SPEC §2.6), e.g. `geo.*`. Returns a frozen descriptor for
+ * `config.libraries`; each `functions[fn].eval` receives/returns plain JS values.
+ * @param {string} name  Unique library/namespace name; must not clash with {@link RESERVED_WORDS}.
+ * @param {Omit<LibraryExtensionDef, 'kind'|'name'>} [def]  The namespace's `functions`.
+ * @returns {LibraryExtensionDef}
+ * @throws {EngineConfigError}  If `name` is not a non-empty string.
  */
-export function defineLibrary(_name, _def) {
-  throw new NotImplementedError('defineLibrary');
+export function defineLibrary(name, def = {}) {
+  requireName(name, 'library');
+  return Object.freeze({ kind: 'library', name, ...def });
+}
+
+/** Validates an extension name eagerly at definition time. @param {unknown} name @param {string} kind */
+function requireName(name, kind) {
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new EngineConfigError(
+      `define${kind[0].toUpperCase()}${kind.slice(1)} requires a non-empty string name`
+    );
+  }
 }

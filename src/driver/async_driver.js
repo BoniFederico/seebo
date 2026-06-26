@@ -6,7 +6,7 @@
  * `failed`. `stebo` is the convenience orchestrator expand → drive → finalize (SPEC §2.5).
  */
 
-import { start, run } from '../run/run.js';
+import { start, run, safeSet } from '../run/run.js';
 import { STATE_VERSION } from '../util/versions.js';
 import { expand } from '../macros/expand.js';
 import { finalize } from '../macros/finalize.js';
@@ -143,6 +143,12 @@ async function resolvePending(pending, cfg, stopOn) {
     if (allowed && !allowed.includes(cap)) {
       return { satisfied, failure: diag(DiagnosticCode.CAPABILITY_FORBIDDEN, { capability: cap }) };
     }
+    // Trust separation (IMPL §13): a capability gated `allowFrom: 'trusted'` is forbidden to
+    // an untrusted template, checked BEFORE the provider runs.
+    const rule = cfg.policy?.capabilityRules?.[cap];
+    if (rule?.allowFrom === 'trusted' && (cfg.policy?.trustLevel ?? 'untrusted') !== 'trusted') {
+      return { satisfied, failure: diag(DiagnosticCode.CAPABILITY_FORBIDDEN, { capability: cap }) };
+    }
     const provider = cfg.capabilities?.[cap];
     if (typeof provider !== 'function') continue; // no provider → leave for a later turn
 
@@ -150,7 +156,11 @@ async function resolvePending(pending, cfg, stopOn) {
     auditEvent(cfg, need, outcome.kind);
 
     if (outcome.kind === ProviderOutcome.RESOLVED) {
-      satisfied[need.id] = /** @type {import('../runtime/values.js').Value} */ (outcome.value);
+      safeSet(
+        satisfied,
+        need.id,
+        /** @type {import('../runtime/values.js').Value} */ (outcome.value)
+      );
     } else if (outcome.kind === ProviderOutcome.UNRESOLVED) {
       // leave in pending
     } else if (outcome.kind === ProviderOutcome.PROVIDER_ERROR) {
