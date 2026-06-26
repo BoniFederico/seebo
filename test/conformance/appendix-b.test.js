@@ -13,7 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realEngine, normalizeOutput, PENDING } from '../helpers/index.js';
+import { realEngine, normalizeOutput } from '../helpers/index.js';
 import { Status } from '../../src/run/run.js';
 
 // IMPL B.2 — a Need in a non-taken branch is NOT emitted (lazy evaluation, IMPL §5).
@@ -49,7 +49,7 @@ test('IMPL B.2 — need in non-taken branch is not emitted', () => {
 //   Expected output:
 //     riga1
 //     V
-test('IMPL B.6 — layout macros: REMOVE_LINE and REMOVE_RIGHT', PENDING, async () => {
+test('IMPL B.6 — layout macros: REMOVE_LINE and REMOVE_RIGHT', async () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = ['riga1', '${ empty }@{REMOVE_LINE}', '${ x }@{REMOVE_RIGHT(2)}AB'].join('\n');
   const res = await engine.stebo({ template, values: { empty: '', x: 'V' } });

@@ -7,10 +7,11 @@
  */
 
 import { start, run } from '../run/run.js';
+import { STATE_VERSION } from '../util/versions.js';
 import { expand } from '../macros/expand.js';
 import { finalize } from '../macros/finalize.js';
 import { fromJs, validate, withFormat, withConstraints } from '../runtime/values.js';
-import { createDiagnostic, DiagnosticCode } from '../util/errors.js';
+import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
 
 /**
  * Normative provider outcomes (IMPL §7.1).
@@ -74,13 +75,48 @@ export async function drive(stateOrTemplate, opts, config) {
  */
 export async function stebo(args, config) {
   const cfg = config ?? {};
-  const composed = await expand({ template: args.template, templates: args.templates }, cfg);
+
+  // (a) pre-pass: EXPAND aggregators. A cyclic/over-deep inclusion is a fatal run error.
+  let composed;
+  try {
+    composed = await expand({ template: args.template, templates: args.templates }, cfg);
+  } catch (e) {
+    return expandFailure(args.template, e);
+  }
+
+  // (b) multi-phase resolution via the driver (§6.3/§7).
   let state = start(composed, args.values, cfg);
   state = await drive(state, { stopOn: args.stopOn }, cfg);
+
+  // (c) post-pass: FINALIZE layout macros on the resolved text.
   if (state.status === 'completed' && typeof state.output === 'string') {
     state = { ...state, output: finalize(state.output, cfg) };
   }
   return state;
+}
+
+/**
+ * Builds a `failed` PublicState from an EXPAND error (IMPL §10.1 / B.5).
+ * @param {string} template @param {unknown} e @returns {import('../run/run.js').PublicState}
+ */
+function expandFailure(template, e) {
+  const code = e instanceof SeeboError && e.code ? e.code : DiagnosticCode.INCLUSION_CYCLE;
+  return {
+    stateVersion: STATE_VERSION,
+    template,
+    resolved: {},
+    pending: [],
+    phase: 0,
+    status: 'failed',
+    diagnostics: [
+      createDiagnostic(code, {
+        severity: 'error',
+        phase: 'run',
+        recoverable: false,
+        message: e instanceof Error ? e.message : String(e),
+      }),
+    ],
+  };
 }
 
 /* ----------------------------------------------------------------------------------- *

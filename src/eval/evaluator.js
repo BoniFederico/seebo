@@ -122,8 +122,11 @@ export function evaluateDocument(ast, resolved, config) {
     } else if (node.kind === 'Comment') {
       // removed at emission (SPEC §1.2)
     } else if (node.kind === 'Macro') {
-      // Layout macros are applied by finalize (post-pass); ignored during evaluation.
-      continue;
+      // Layout macros are positional markers applied by finalize (post-pass): emit their
+      // canonical `@{NAME(args)}` source so finalize can act on it. Aggregator macros are
+      // expanded by the pre-pass (IMPL §10.1) and emit nothing if they reach here.
+      const macro = /** @type {import('../ast/nodes.js').MacroNode} */ (node);
+      if (macro.family === 'layout') output += renderMacroMarker(macro, config);
     } else if (node.kind === 'Formula') {
       const res = evaluate(/** @type {any} */ (node).expr, ctx);
       if (res.kind === 'Ok') output += toText(res.value, config?.locale);
@@ -248,6 +251,30 @@ function evalLit(e) {
     default:
       return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `unsupported literal '${e.type}'`);
   }
+}
+
+/**
+ * Renders a layout macro back to its canonical `@{NAME(args)}` marker so the FINALIZE
+ * post-pass ({@link ../macros/finalize.js}) can apply it positionally (IMPL §10.2). Only
+ * literal arguments are reconstructed (layout macros take numeric/string literals).
+ * @param {import('../ast/nodes.js').MacroNode} macro @param {import('../index.js').EngineConfig} [config]
+ * @returns {string}
+ */
+function renderMacroMarker(macro, config) {
+  const d = config?.delimiters ?? {};
+  const sigil = d.macro ?? '@';
+  const open = d.open ?? '{';
+  const close = d.close ?? '}';
+  const args = macro.args.map(macroArgSource).join(',');
+  const call = macro.args.length > 0 ? `${macro.name}(${args})` : macro.name;
+  return `${sigil}${open}${call}${close}`;
+}
+
+/** Source form of a layout-macro literal argument. @param {import('../ast/nodes.js').Expr} expr @returns {string} */
+function macroArgSource(expr) {
+  const e = /** @type {any} */ (expr);
+  if (e && e.kind === 'Lit') return String(e.value);
+  return '';
 }
 
 /** @param {string} name @param {EvalContext} ctx @param {import('../ast/nodes.js').Expr} node */

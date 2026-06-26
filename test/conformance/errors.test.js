@@ -63,7 +63,7 @@ test('SPEC §2.3 — parse throws on malformed syntax', () => {
 // IMPL B.5 — cyclic inclusion is detected (statically by analyze, fatally by run/expand).
 //   templates: a → ABSORB('b'), b → ABSORB('a')
 //   Expected: status 'failed' with INCLUSION_CYCLE; analyze.potentialCycles non-empty.
-test('IMPL B.5 — INCLUSION_CYCLE on cyclic ABSORB', PENDING, async () => {
+test('IMPL B.5 — INCLUSION_CYCLE on cyclic ABSORB', async () => {
   const engine = realEngine();
   const templates = { a: "@{ABSORB('b')}", b: "@{ABSORB('a')}" };
   const res = await engine.stebo({ template: templates.a, templates });
