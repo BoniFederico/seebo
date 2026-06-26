@@ -50,7 +50,9 @@ export const ProviderOutcome = Object.freeze({
  */
 export async function drive(stateOrTemplate, _opts, config) {
   const initial =
-    typeof stateOrTemplate === 'string' ? start(stateOrTemplate, undefined, config) : stateOrTemplate;
+    typeof stateOrTemplate === 'string'
+      ? start(stateOrTemplate, undefined, config)
+      : stateOrTemplate;
   return run(initial, config);
 }
 

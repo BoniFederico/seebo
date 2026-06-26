@@ -7,12 +7,13 @@ the developer-facing companion to the reference specs in
 like `SPEC §x.y` / `IMPL §x` point to those documents.
 
 > **Status: contracts + a minimal vertical slice.** The public contracts (JSDoc typedefs
-> + signatures) are defined. A first end-to-end slice is implemented: `tokenize`, `parse`,
-> `run`/`start`, `drive`, `stebo` (and pass-through `expand`/`finalize`) over the subset
-> **text + comment slots `#{}` + formula slots `${}` with int/float/string literals,
-> `+ - * /`, unary `-`, parentheses, and `\` escaping**. Everything else (refs, producers,
-> methods, requirements/capabilities, macros, `validate`, `analyze`) still throws
-> `NotImplementedError` or raises a structured `SYNTAX_ERROR` at the slice boundary.
+>
+> - signatures) are defined. A first end-to-end slice is implemented: `tokenize`, `parse`,
+>   `run`/`start`, `drive`, `stebo` (and pass-through `expand`/`finalize`) over the subset
+>   **text + comment slots `#{}` + formula slots `${}` with int/float/string literals,
+>   `+ - * /`, unary `-`, parentheses, and `\` escaping**. Everything else (refs, producers,
+>   methods, requirements/capabilities, macros, `validate`, `analyze`) still throws
+>   `NotImplementedError` or raises a structured `SYNTAX_ERROR` at the slice boundary.
 
 ## Design principles (SPEC §1.1)
 
