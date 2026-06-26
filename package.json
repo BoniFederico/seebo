@@ -1,18 +1,44 @@
 {
   "name": "seebo",
   "version": "0.1.0",
-  "description": "Seebo — Suspendable Evaluation Engine Built with Opus",
+  "description": "Suspendable Evaluation Engine Built with Opus — a typed, suspendable expression/template engine with a pure synchronous core.",
   "type": "module",
   "license": "MIT",
+  "author": "Federico Boni <federicoboni67@gmail.com>",
+  "homepage": "https://github.com/BoniFederico/seebo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BoniFederico/seebo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BoniFederico/seebo/issues"
+  },
+  "keywords": [
+    "template",
+    "template-engine",
+    "evaluation",
+    "interpreter",
+    "expression",
+    "suspendable",
+    "resumable",
+    "state-machine",
+    "typed",
+    "pure",
+    "deterministic"
+  ],
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js"
   },
+  "sideEffects": false,
   "files": [
     "src"
   ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "node --test",
@@ -26,7 +52,9 @@
     "typecheck": "tsc --noEmit",
     "bench": "node bench/index.js",
     "bench:gc": "node --expose-gc bench/index.js",
-    "bench:smoke": "node bench/index.js --smoke"
+    "bench:smoke": "node bench/index.js --smoke",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "prepublishOnly": "npm run check"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
