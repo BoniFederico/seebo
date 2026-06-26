@@ -24,6 +24,38 @@ export function parse(template, config) {
     source: template,
     delimiters: config?.delimiters,
     capabilities: config?.capabilities ? Object.keys(config.capabilities) : [],
-    libraries: config?.libraries ?? [],
+    libraries: libraryNames(config),
+    macros: macroFamilies(config),
   });
+}
+
+/**
+ * Library namespaces enabled for `Namespace` parsing — from the built registry when present,
+ * else derived from `config.libraries` (names or `defineLibrary` descriptors).
+ * @param {import('../index.js').EngineConfig} [config] @returns {string[]}
+ */
+function libraryNames(config) {
+  const reg = /** @type {any} */ (config)?.registry;
+  if (reg?.libraryNames) return [...reg.libraryNames];
+  return (config?.libraries ?? [])
+    .map((l) => (typeof l === 'string' ? l : /** @type {any} */ (l)?.name))
+    .filter(Boolean);
+}
+
+/**
+ * Custom macro → family map for the parser — from the built registry when present, else
+ * derived from `config.macros` (`defineMacro` descriptors).
+ * @param {import('../index.js').EngineConfig} [config] @returns {Record<string, 'aggregator'|'layout'>}
+ */
+function macroFamilies(config) {
+  const reg = /** @type {any} */ (config)?.registry;
+  if (reg?.macroFamilies) return reg.macroFamilies;
+  /** @type {Record<string, 'aggregator'|'layout'>} */
+  const out = {};
+  for (const m of config?.macros ?? []) {
+    if (m && typeof m.name === 'string') {
+      out[m.name] = m.family ?? (m.phase === 'expand' ? 'aggregator' : 'layout');
+    }
+  }
+  return out;
 }

@@ -155,7 +155,17 @@ test('validate and analyze are implemented (static passes)', () => {
   assert.deepEqual(a.requirements, []);
 });
 
-test('not-yet-implemented features still throw NotImplementedError', () => {
-  // define* are future extension points (SPEC §2.6).
-  assert.throws(() => api.defineType('money', {}), errors.NotImplementedError);
+test('define* factories return frozen extension descriptors (SPEC §2.6)', () => {
+  const t = api.defineType('money', { category: 'base' });
+  assert.deepEqual(t, { kind: 'type', name: 'money', category: 'base' });
+  assert.ok(Object.isFrozen(t));
+
+  const f = api.defineFunction('slugify', { receiver: 'string', eval: (s) => s });
+  assert.equal(f.kind, 'function');
+  assert.equal(f.receiver, 'string');
+
+  // Missing required behaviour is rejected eagerly.
+  assert.throws(() => api.defineFunction('bad'), errors.EngineConfigError);
+  assert.throws(() => api.defineCapability('bad'), errors.EngineConfigError);
+  assert.throws(() => api.defineType(''), errors.EngineConfigError);
 });

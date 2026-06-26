@@ -143,6 +143,12 @@ async function resolvePending(pending, cfg, stopOn) {
     if (allowed && !allowed.includes(cap)) {
       return { satisfied, failure: diag(DiagnosticCode.CAPABILITY_FORBIDDEN, { capability: cap }) };
     }
+    // Trust separation (IMPL §13): a capability gated `allowFrom: 'trusted'` is forbidden to
+    // an untrusted template, checked BEFORE the provider runs.
+    const rule = cfg.policy?.capabilityRules?.[cap];
+    if (rule?.allowFrom === 'trusted' && (cfg.policy?.trustLevel ?? 'untrusted') !== 'trusted') {
+      return { satisfied, failure: diag(DiagnosticCode.CAPABILITY_FORBIDDEN, { capability: cap }) };
+    }
     const provider = cfg.capabilities?.[cap];
     if (typeof provider !== 'function') continue; // no provider → leave for a later turn
 

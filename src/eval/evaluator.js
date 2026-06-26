@@ -229,9 +229,7 @@ export function evaluate(expr, ctx) {
     case 'ArrayLit':
       return evalArrayLit(e, ctx);
     case 'Namespace':
-      return err(DiagnosticCode.UNKNOWN_FUNCTION, expr, `library '${e.ns}' is not implemented`, {
-        name: `${e.ns}.${e.name}`,
-      });
+      return evalNamespace(e, ctx);
     default:
       return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, `unsupported expression '${e.kind}'`);
   }
@@ -420,6 +418,13 @@ function evalCall(e, ctx) {
     if (args.blocking) return args.blocking;
     return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
   }
+  // Custom producer registered via defineFunction (SPEC §2.6), consulted only after builtins.
+  const producer = registryOf(ctx)?.getProducer(e.callee);
+  if (producer) {
+    const args = evalList(e.args, ctx);
+    if (args.blocking) return args.blocking;
+    return callExtension(producer, undefined, /** @type {any} */ (args.values), e);
+  }
   return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, {
     name: e.callee,
   });
@@ -431,7 +436,66 @@ function evalMethod(e, ctx) {
   if (recv.kind !== 'Ok') return recv;
   const args = evalList(e.args, ctx);
   if (args.blocking) return args.blocking;
-  return tryApply(() => applyMethod(recv.value, e.name, /** @type {any} */ (args.values)), e);
+  try {
+    return ok(applyMethod(recv.value, e.name, /** @type {any} */ (args.values)));
+  } catch (ex) {
+    // Builtins win; a custom transformer (defineFunction with a receiver) is consulted only
+    // when the builtin dispatch reports the method as unknown (SPEC §2.6).
+    const custom =
+      ex instanceof SeeboError && ex.code === DiagnosticCode.UNKNOWN_METHOD
+        ? registryOf(ctx)?.getTransformer(recv.value.type, e.name)
+        : undefined;
+    if (custom) return callExtension(custom, recv.value, /** @type {any} */ (args.values), e);
+    return errFrom(ex, e);
+  }
+}
+
+/** @param {import('../ast/nodes.js').NamespaceNode} e @param {EvalContext} ctx @returns {EvalResult} */
+function evalNamespace(e, ctx) {
+  const fn = registryOf(ctx)?.getLibraryFn(e.ns, e.name);
+  if (!fn) {
+    return err(
+      DiagnosticCode.UNKNOWN_FUNCTION,
+      e,
+      `library function '${e.ns}.${e.name}' is not registered`,
+      {
+        name: `${e.ns}.${e.name}`,
+      }
+    );
+  }
+  const args = evalList(e.args, ctx);
+  if (args.blocking) return args.blocking;
+  return callExtension(fn, undefined, /** @type {any} */ (args.values), e);
+}
+
+/** Reads the extension registry from the evaluation context, if any. @param {EvalContext} ctx @returns {import('../runtime/registry.js').Registry | undefined} */
+function registryOf(ctx) {
+  return /** @type {any} */ (ctx.config)?.registry;
+}
+
+/**
+ * Invokes a registered extension (`defineFunction`/`defineLibrary`) over plain JS values and
+ * wraps the result back into a typed {@link import('../runtime/values.js').Value} via
+ * {@link fromJs} (SPEC §2.6). Extension code never sees internal `Value`s.
+ * @param {{ arity?: { min: number, max: number }, eval: (...args: any[]) => unknown }} def
+ * @param {import('../runtime/values.js').Value | undefined} self  Receiver for a transformer; `undefined` for a producer/library fn.
+ * @param {import('../runtime/values.js').Value[]} args  Evaluated argument values.
+ * @param {import('../ast/nodes.js').Expr} node
+ * @returns {EvalResult}
+ */
+function callExtension(def, self, args, node) {
+  if (def.arity) {
+    const n = args.length;
+    if (n < def.arity.min || n > def.arity.max) {
+      return err(DiagnosticCode.ARITY_MISMATCH, node, 'wrong number of arguments', {
+        expected: def.arity,
+        got: n,
+      });
+    }
+  }
+  const jsArgs = args.map((v) => v.value);
+  const callArgs = self ? [self.value, ...jsArgs] : jsArgs;
+  return tryApply(() => fromJs(def.eval(...callArgs)), node);
 }
 
 /** @param {import('../ast/nodes.js').MemberNode} e @param {EvalContext} ctx */
