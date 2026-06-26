@@ -24,11 +24,24 @@ const TYPE_NAMES = new Set([
 ]);
 
 /**
+ * Memoized symbol tables keyed by AST identity. The table is a pure function of the AST and
+ * is consumed read-only, so a cached one can be safely shared. With `optimizations.astCache`
+ * the AST is stable across `run` passes, so the static scan runs once per template instead of
+ * once per pass (IMPL §8/§11).
+ * @type {WeakMap<import('../ast/nodes.js').Document, Map<string, { kind: 'require'|'var', descriptor: any }>>}
+ */
+const DECL_CACHE = new WeakMap();
+
+/**
  * Collects all `require`/`var` declarations from a document (all branches, statically).
+ * Memoized by AST identity.
  * @param {import('../ast/nodes.js').Document} ast
  * @returns {Map<string, { kind: 'require'|'var', descriptor: import('./evaluator.js').RequirementDescriptor }>}
  */
 export function collectDeclarations(ast) {
+  const cached = DECL_CACHE.get(ast);
+  if (cached) return cached;
+
   /** @type {Map<string, { kind: 'require'|'var', descriptor: any }>} */
   const table = new Map();
   for (const node of ast.nodes) {
@@ -36,6 +49,7 @@ export function collectDeclarations(ast) {
     else if (node.kind === 'Macro')
       for (const a of /** @type {any} */ (node).args) walkExpr(a, table);
   }
+  DECL_CACHE.set(ast, table);
   return table;
 }
 

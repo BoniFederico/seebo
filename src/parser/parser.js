@@ -168,46 +168,45 @@ function macroFamily(name, custom) {
  * @returns {import('../ast/nodes.js').Expr}
  */
 function parseExpr(ctx, minBinding) {
-  ctx.enter(); // nesting guard (IMPL §13)
-  try {
-    let left = parseUnary(ctx);
+  // Nesting guard (IMPL §13). No try/finally: a thrown error aborts the whole parse, so the
+  // depth counter need not be unwound — we just decrement on the normal return path.
+  ctx.enter();
+  let left = parseUnary(ctx);
 
-    for (;;) {
-      const tok = ctx.peek();
-      if (!tok || tok.kind !== TokenType.OPERATOR) break;
-      const op = ctx.text(tok);
+  for (;;) {
+    const tok = ctx.peek();
+    if (!tok || tok.kind !== TokenType.OPERATOR) break;
+    const op = ctx.text(tok);
 
-      // Ternary: cond ? then : else  (right-associative, SPEC §1.4 level 10)
-      if (op === '?') {
-        if (TERNARY_BINDING < minBinding) break;
-        ctx.next();
-        const thenExpr = parseExpr(ctx, 0);
-        ctx.expectPunct(TokenType.OPERATOR, ':', "expected ':' in ternary");
-        const elseExpr = parseExpr(ctx, TERNARY_BINDING);
-        ctx.countNode();
-        left = {
-          kind: 'Ternary',
-          position: span(left, elseExpr),
-          cond: left,
-          then: thenExpr,
-          else: elseExpr,
-        };
-        continue;
-      }
-
-      const prec = PRECEDENCE[op];
-      if (!prec) break;
-      if (prec.binding < minBinding) break;
+    // Ternary: cond ? then : else  (right-associative, SPEC §1.4 level 10)
+    if (op === '?') {
+      if (TERNARY_BINDING < minBinding) break;
       ctx.next();
-      const right = parseExpr(ctx, prec.assoc === 'left' ? prec.binding + 1 : prec.binding);
+      const thenExpr = parseExpr(ctx, 0);
+      ctx.expectPunct(TokenType.OPERATOR, ':', "expected ':' in ternary");
+      const elseExpr = parseExpr(ctx, TERNARY_BINDING);
       ctx.countNode();
-      left = { kind: 'Binary', position: span(left, right), op, left, right };
+      left = {
+        kind: 'Ternary',
+        position: span(left, elseExpr),
+        cond: left,
+        then: thenExpr,
+        else: elseExpr,
+      };
+      continue;
     }
 
-    return left;
-  } finally {
-    ctx.exit();
+    const prec = PRECEDENCE[op];
+    if (!prec) break;
+    if (prec.binding < minBinding) break;
+    ctx.next();
+    const right = parseExpr(ctx, prec.assoc === 'left' ? prec.binding + 1 : prec.binding);
+    ctx.countNode();
+    left = { kind: 'Binary', position: span(left, right), op, left, right };
   }
+
+  ctx.exit();
+  return left;
 }
 
 /** @param {Context} ctx @returns {import('../ast/nodes.js').Expr} */
@@ -218,13 +217,10 @@ function parseUnary(ctx) {
     if (op === '-' || op === 'not') {
       ctx.next();
       ctx.enter(); // guard chained unary recursion (`not not …`)
-      try {
-        const arg = parseUnary(ctx);
-        ctx.countNode();
-        return { kind: 'Unary', position: span(tok, arg), op, arg };
-      } finally {
-        ctx.exit();
-      }
+      const arg = parseUnary(ctx);
+      ctx.countNode();
+      ctx.exit();
+      return { kind: 'Unary', position: span(tok, arg), op, arg };
     }
   }
   return parsePostfix(ctx);
