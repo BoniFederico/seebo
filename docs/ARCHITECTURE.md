@@ -58,11 +58,22 @@ directly); both are wired in `createEngine` and share the static symbol table (I
 
 Parses, builds the symbol table, and walks the AST reporting `UNDECLARED_NAME`,
 `UNKNOWN_FUNCTION` (unknown producer / un-enabled library), `UNKNOWN_CAPABILITY`,
-`POLICY_FORBIDDEN` (capability excluded by `policy.allowedCapabilities`) and
-`NON_EXHAUSTIVE_MATCH`. The last relies on a **non-normative marker** the parser attaches
-to the outermost ternary of a `match` desugared without a `*` arm (the marker is absent for
-exhaustive matches, so their AST is unchanged). `validate` never throws: a malformed
-template surfaces as a single `SYNTAX_ERROR` diagnostic.
+`POLICY_FORBIDDEN` (capability excluded by `policy.allowedCapabilities`),
+`NON_EXHAUSTIVE_MATCH`, and the statically deducible type checks `UNKNOWN_METHOD`,
+`ARITY_MISMATCH` and `TYPE_ERROR`. `NON_EXHAUSTIVE_MATCH` relies on a **non-normative
+marker** the parser attaches to the outermost ternary of a `match` desugared without a `*`
+arm (the marker is absent for exhaustive matches — including a `bool` match that covers
+`true`+`false` — so their AST is unchanged).
+
+The type checks are powered by a **conservative static type inferencer**
+(`src/validate/infer.js`) that mirrors the runtime contract of `eval/methods.js` and
+`eval/operators.js` at the type level. Its lattice is the eight base types plus `unknown`;
+anything not provable (member access, custom types, library results, un-typed refs) collapses
+to `unknown`, and any operation involving `unknown` is never reported — so `validate` only
+flags violations it can prove and never produces false positives. The walk threads each
+expression's inferred type bottom-up in a single pass; custom producers/transformers from the
+registry are consulted so application extensions are not mis-reported. `validate` never
+throws: a malformed template surfaces as a single `SYNTAX_ERROR` diagnostic.
 
 ### `analyze` (IMPL §9)
 
