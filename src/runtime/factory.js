@@ -49,10 +49,10 @@ export function isNumeric(v) {
  * default decimal separator is ',' per SPEC §1.3, independent of locale here).
  *
  * @param {import('./values.js').Value} v
- * @param {string} [locale]
+ * @param {string} [_locale]
  * @returns {string}
  */
-export function renderValue(v, locale) {
+export function renderValue(v, _locale) {
   switch (v.type) {
     case 'int':
       return String(v.value);
