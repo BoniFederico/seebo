@@ -12,6 +12,7 @@ import {
   makeString,
   makeArray,
   makeDuration,
+  makeDatetime,
   isNumeric,
   objectGet,
   arrayGet,
@@ -49,7 +50,7 @@ export function applyMethod(recv, name, args) {
     case 'duration':
       return durationMethod(recv, name, args);
     case 'datetime':
-      return datetimeMethod(recv, name);
+      return datetimeMethod(recv, name, args);
     case 'object':
       return objectMethod(recv, name, args);
     default:
@@ -272,9 +273,10 @@ function truncTo(sec, unit) {
  * datetime (IMPL §4.1)
  * ----------------------------------------------------------------------------------- */
 
-/** @param {Value} recv @param {string} name @returns {Value} */
-function datetimeMethod(recv, name) {
-  const d = new Date(/** @type {number} */ (recv.value));
+/** @param {Value} recv @param {string} name @param {Value[]} args @returns {Value} */
+function datetimeMethod(recv, name, args) {
+  const epochMs = /** @type {number} */ (recv.value);
+  const d = new Date(epochMs);
   switch (name) {
     case 'year':
       return makeInt(d.getUTCFullYear());
@@ -288,9 +290,41 @@ function datetimeMethod(recv, name) {
       return makeInt(d.getUTCMinutes());
     case 'second':
       return makeInt(d.getUTCSeconds());
+    case 'truncate':
+      return truncateDatetime(d, precisionArg(args, 0, name));
+    case 'add':
+      return makeDatetime(epochMs + durationSecArg(args, 0, name) * 1000);
+    case 'sub':
+      return makeDatetime(epochMs - durationSecArg(args, 0, name) * 1000);
     default:
       throw unknownMethod('datetime', name);
   }
+}
+
+/**
+ * Truncates a datetime to the given calendar precision in UTC (SPEC §1.5 `d.truncate`).
+ * The resulting value records its coarser granularity in `constraints.precision`.
+ * @param {Date} d  Source instant.
+ * @param {string} unit  One of {@link PRECISION_ORDER}.
+ * @returns {Value}
+ */
+function truncateDatetime(d, unit) {
+  const y = d.getUTCFullYear();
+  const mo = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const h = d.getUTCHours();
+  const mi = d.getUTCMinutes();
+  const s = d.getUTCSeconds();
+  /** @type {Record<string, number>} */
+  const ms = {
+    year: Date.UTC(y, 0, 1),
+    month: Date.UTC(y, mo, 1),
+    day: Date.UTC(y, mo, day),
+    hour: Date.UTC(y, mo, day, h),
+    minute: Date.UTC(y, mo, day, h, mi),
+    second: Date.UTC(y, mo, day, h, mi, s),
+  };
+  return makeDatetime(ms[unit], { constraints: { precision: unit } });
 }
 
 /* ----------------------------------------------------------------------------------- *
@@ -346,6 +380,22 @@ function unitArg(args, i, name) {
     throw typeErr(`'${name}' expects a unit, got '${u}'`);
   }
   return u;
+}
+
+/** @param {Value[]} args @param {number} i @param {string} name @returns {string} */
+function precisionArg(args, i, name) {
+  const u = strArg(args, i, name);
+  if (!PRECISION_ORDER.includes(u)) {
+    throw typeErr(`'${name}' expects a calendar precision, got '${u}'`);
+  }
+  return u;
+}
+
+/** @param {Value[]} args @param {number} i @param {string} name @returns {number} */
+function durationSecArg(args, i, name) {
+  const v = arg(args, i, name);
+  if (v.type !== 'duration') throw typeErr(`'${name}' expects a duration argument`);
+  return /** @type {number} */ (v.value);
 }
 
 /** Reads a config-object argument's JSON (for format/constraints). @param {Value} v @returns {Record<string, unknown>} */

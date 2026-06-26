@@ -64,6 +64,28 @@ test('SPEC §2.7 — datetime() parses an ISO-8601 string', async () => {
   );
 });
 
+// SPEC §1.5 — datetime transformer methods in method form: truncate / add / sub.
+test('SPEC §1.5 — datetime truncate/add/sub method forms', async () => {
+  // truncate('month') drops day/time → first day of the month at 00:00:00 UTC.
+  assert.equal(
+    await renderExpr("datetime('2026-06-20T10:30:45Z').truncate('month').day()"),
+    '1'
+  );
+  assert.equal(
+    await renderExpr("datetime('2026-06-20T10:30:45Z').truncate('day').hour()"),
+    '0'
+  );
+  // add/sub are the method forms of datetime ± duration (SPEC §1.4).
+  assert.equal(
+    await renderExpr("datetime('2026-06-20').add(duration(86400)).day()"),
+    '21'
+  );
+  assert.equal(
+    await renderExpr("datetime('2026-06-20').sub(duration(86400)).day()"),
+    '19'
+  );
+});
+
 // SPEC §1.3 — duration stringification: leftmost token absorbs overflow.
 //   duration(50*3600).format({pattern:'HH:mm:ss'})    → "50:00:00"
 //   duration(50*3600).format({pattern:'D HH:mm:ss'})  → "2 02:00:00"
