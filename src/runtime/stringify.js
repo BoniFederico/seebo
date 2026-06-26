@@ -58,7 +58,11 @@ function formatFloat(v) {
   const fixed = Math.abs(n).toFixed(precision);
   const dot = fixed.indexOf('.');
   const intPart = dot === -1 ? fixed : fixed.slice(0, dot);
-  const fracPart = dot === -1 ? '' : fixed.slice(dot + 1);
+  let fracPart = dot === -1 ? '' : fixed.slice(dot + 1);
+  // `trimZeros` (set by duration totals, IMPL §4.3 / SPEC §1.5): render the natural value
+  // without padding zeros, so `duration(50*3600).totalHours()` is "50", not "50,00". General
+  // floats keep their fixed `precision`.
+  if (v.format && v.format.trimZeros === true) fracPart = fracPart.replace(/0+$/, '');
   const grouped = group(intPart, thousands);
   return sign + (fracPart ? grouped + decimalSep + fracPart : grouped);
 }

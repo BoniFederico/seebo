@@ -572,8 +572,11 @@ function construct(type, args) {
       if (!isNumeric(v)) throw typeErr('duration() expects a number of seconds');
       return makeDuration(/** @type {number} */ (v.value));
     case 'datetime':
-      if (!isNumeric(v)) throw typeErr('datetime() expects epoch milliseconds');
-      return makeDatetime(/** @type {number} */ (v.value));
+      if (isNumeric(v)) return makeDatetime(/** @type {number} */ (v.value));
+      // The explicit `datetime()` producer also accepts an ISO-8601 string (SPEC §1.5/§2.7).
+      // This is distinct from `fromJs` inference, which never auto-parses strings (clarifications §7).
+      if (v.type === 'string') return makeDatetime(parseIso(/** @type {string} */ (v.value)));
+      throw typeErr('datetime() expects epoch milliseconds or an ISO-8601 string');
     case 'object':
       if (v.type !== 'object') throw typeErr(`object() expects an object, got ${v.type}`);
       return v;
@@ -583,6 +586,21 @@ function construct(type, args) {
     default:
       throw typeErr(`unknown type '${type}'`);
   }
+}
+
+/**
+ * Strictly parses a canonical ISO-8601 instant into epoch ms UTC (SPEC §2.7). Accepts
+ * `YYYY-MM-DD` optionally followed by `THH:mm[:ss[.sss]]` and an optional trailing `Z`; all
+ * times are interpreted as UTC. The regex is linear-time (no backtracking ⇒ ReDoS-safe).
+ * @param {string} s @returns {number}
+ */
+function parseIso(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?Z?$/.exec(
+    s.trim()
+  );
+  if (!m) throw typeErr(`datetime() cannot parse ISO-8601 string '${s}'`);
+  const ms = (m[7] ?? '').padEnd(3, '0');
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0), +ms);
 }
 
 /** @param {import('../runtime/values.js').Value} v */

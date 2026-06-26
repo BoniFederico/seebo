@@ -188,15 +188,15 @@ function durationMethod(recv, name, args) {
   const sec = /** @type {number} */ (recv.value);
   switch (name) {
     case 'totalSeconds':
-      return makeFloat(sec / DURATION_UNITS.second);
+      return total(sec / DURATION_UNITS.second);
     case 'totalMinutes':
-      return makeFloat(sec / DURATION_UNITS.minute);
+      return total(sec / DURATION_UNITS.minute);
     case 'totalHours':
-      return makeFloat(sec / DURATION_UNITS.hour);
+      return total(sec / DURATION_UNITS.hour);
     case 'totalDays':
-      return makeFloat(sec / DURATION_UNITS.day);
+      return total(sec / DURATION_UNITS.day);
     case 'totalWeeks':
-      return makeFloat(sec / DURATION_UNITS.week);
+      return total(sec / DURATION_UNITS.week);
     case 'weeks':
       return makeInt(component(sec, 'week'));
     case 'days':
@@ -220,6 +220,15 @@ function durationMethod(recv, name, args) {
     default:
       throw unknownMethod('duration', name);
   }
+}
+
+/**
+ * A duration **total** as a float rendered in its natural form (no padding zeros): SPEC §1.5
+ * shows `duration(50*3600).totalHours()` as `50`, not `50,00` (IMPL §4.3).
+ * @param {number} n @returns {Value}
+ */
+function total(n) {
+  return makeFloat(n, { format: { trimZeros: true } });
 }
 
 /**
