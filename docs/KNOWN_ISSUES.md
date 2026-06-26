@@ -15,8 +15,9 @@
 - Nessuno streaming nella v1: `engine.steboStream()` **non** è esposto;
   `optimizations.stream` è accettato in config con default `false` ma inerte.
 - Strategia di ripresa: **re-evaluation completa** a ogni `run` (strategia 1).
-- Tutte le ottimizzazioni (`lazyParse`, `astCache`, `stream`, `objectPool`) off di default
-  e non implementate in v1.
+- Tutte le ottimizzazioni sono **off di default**. `astCache` è implementato (cache
+  trasparente di parse/analyze, opt-in); `lazyParse`, `stream` e `objectPool` sono accettati
+  ma inerti in v1.
 - Nessuna dipendenza esterna di runtime; `fake.*` resta esempio via `defineLibrary`.
 - `date(pattern, testo)`: mini parser/formatter interno sul subset normativo di token
   (`YYYY MM DD HH mm ss Z`).
