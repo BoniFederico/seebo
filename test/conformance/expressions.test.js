@@ -24,8 +24,8 @@ async function renderExpr(expr, config) {
 }
 
 // SPEC §1.4 — arithmetic precedence: `*` binds tighter than `+`.
-// Input: 1 + 2 * 3   Expected: "7"
-test('SPEC §1.4 — arithmetic precedence (1 + 2 * 3 = 7)', PENDING, async () => {
+// Input: 1 + 2 * 3   Expected: "7"   (ACTIVE: implemented by the v1 slice)
+test('SPEC §1.4 — arithmetic precedence (1 + 2 * 3 = 7)', async () => {
   assert.equal(await renderExpr('1 + 2 * 3'), '7');
 });
 

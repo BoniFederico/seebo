@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PRECEDENCE, parse } from '../../src/parser/index.js';
-import { realEngine, assertNotImplemented, PENDING } from '../helpers/index.js';
+import { realEngine, PENDING } from '../helpers/index.js';
 
 test('PRECEDENCE table matches SPEC §1.4 ordering (* tighter than +, ?: loosest)', () => {
   assert.ok(PRECEDENCE['*'].binding > PRECEDENCE['+'].binding);
@@ -20,14 +20,16 @@ test('PRECEDENCE table matches SPEC §1.4 ordering (* tighter than +, ?: loosest
   assert.equal(PRECEDENCE['?:'].assoc, 'right');
 });
 
-test('parse is a placeholder in v1 (throws NotImplemented)', () => {
-  assertNotImplemented(() => parse('${ 1 }'));
+test('parse builds a Document tagged with astVersion', () => {
+  const doc = parse('${ 1 }');
+  assert.equal(doc.astVersion, 1);
+  assert.equal(doc.nodes[0].kind, 'Formula');
 });
 
 // IMPL §3 / SPEC §2.3 — parse builds a left-leaning tree per precedence.
 //   Input: ${ 1 + 2 * 3 }
 //   Expected expr: Binary(+, Lit 1, Binary(*, Lit 2, Lit 3))
-test('IMPL §3 — parse respects precedence in the AST', PENDING, () => {
+test('IMPL §3 — parse respects precedence in the AST', () => {
   const engine = realEngine();
   const doc = engine.parse('${ 1 + 2 * 3 }');
   const expr = /** @type {any} */ (doc.nodes[0]).expr;

@@ -55,9 +55,9 @@ test('SPEC §2.3 — clean template has no diagnostics', PENDING, () => {
 
 // SPEC §2.3 — parse throws (with position) on malformed syntax, unlike validate/tokenize.
 //   Input: ${ 1 +    Expected: throws (SYNTAX_ERROR-coded error).
-test('SPEC §2.3 — parse throws on malformed syntax', PENDING, () => {
+test('SPEC §2.3 — parse throws on malformed syntax', () => {
   const engine = realEngine();
-  assert.throws(() => engine.parse('${ 1 + }'));
+  assert.throws(() => engine.parse('${ 1 + }')); // ACTIVE: implemented by the v1 slice
 });
 
 // IMPL B.5 — cyclic inclusion is detected (statically by analyze, fatally by run/expand).

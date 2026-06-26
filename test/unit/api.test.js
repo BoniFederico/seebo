@@ -142,8 +142,10 @@ test('the error policy exposes the normative diagnostic codes', () => {
   assert.deepEqual(diag.data, { name: 'foo' });
 });
 
-test('placeholders throw NotImplementedError (temporary v1 contract)', () => {
+test('not-yet-implemented features still throw NotImplementedError', () => {
+  // analyze/validate are out of the v1 slice; define* are future extension points.
   const engine = api.createEngine();
-  assert.throws(() => engine.parse('x'), errors.NotImplementedError);
+  assert.throws(() => engine.analyze('${ 1 }'), errors.NotImplementedError);
+  assert.throws(() => engine.validate('${ 1 }'), errors.NotImplementedError);
   assert.throws(() => api.defineType('money', {}), errors.NotImplementedError);
 });

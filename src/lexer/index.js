@@ -1,11 +1,12 @@
 /**
- * @file Lexer barrel: re-exports the token contract ({@link ./tokens.js}) and the lexer
- * function signatures. Single pass, O(n), skippable atomic blocks (IMPL §2).
- * Dual mode: error-tolerant (`tokenize`) vs error-with-position (`lex`, for `parse`).
- * v1 placeholders.
+ * @file Lexer barrel: re-exports the token contract ({@link ./tokens.js}) and exposes the
+ * lexer entry points backed by {@link ./scanner.js} (IMPL §2).
+ * Dual mode: `tokenize` (error-tolerant, for editors) and `lex` (used by `parse`).
+ * In v1 the scanner is shared and tolerant; the parser is responsible for turning
+ * malformed structure into diagnostics.
  */
 
-import { NotImplementedError } from '../util/errors.js';
+import { scan } from './scanner.js';
 
 export { TokenType } from './tokens.js';
 
@@ -16,25 +17,23 @@ export { TokenType } from './tokens.js';
 export { TokenType as TokenKind } from './tokens.js';
 
 /**
- * Tokenizes a template in **error-tolerant** mode (SPEC §2.3): never throws, used for
- * syntax highlighting even on incomplete input.
+ * Tokenizes a template in error-tolerant mode (SPEC §2.3): never throws.
  *
- * @param {string} _template
- * @param {import('../index.js').EngineConfig} [_config]
+ * @param {string} template
+ * @param {import('../index.js').EngineConfig} [config]
  * @returns {import('./tokens.js').Token[]}
  */
-export function tokenize(_template, _config) {
-  throw new NotImplementedError('lexer.tokenize');
+export function tokenize(template, config) {
+  return scan(template, config);
 }
 
 /**
- * Variant for `parse`: on malformed input it reports an error with position instead of
- * tolerating it (IMPL §2).
+ * Token stream used by `parse` (IMPL §2). Same scan in v1; the parser validates structure.
  *
- * @param {string} _template
- * @param {import('../index.js').EngineConfig} [_config]
+ * @param {string} template
+ * @param {import('../index.js').EngineConfig} [config]
  * @returns {import('./tokens.js').Token[]}
  */
-export function lex(_template, _config) {
-  throw new NotImplementedError('lexer.lex');
+export function lex(template, config) {
+  return scan(template, config);
 }

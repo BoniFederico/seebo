@@ -1,29 +1,23 @@
 /**
- * @file Public contract for the EXPAND pre-pass (SPEC §1.8, IMPL §10.1): aggregator
- * macros (`ABSORB`, `MERGE`) expanded BEFORE formula resolution, pulling from the
- * provided template set. Recursive but bounded (anti-cycle + `limits.maxDepth`).
+ * @file EXPAND pre-pass (SPEC §1.8, IMPL §10.1): aggregator macros (`ABSORB`, `MERGE`).
  *
- * `expand` is declared async to allow asynchronous template sources; with all templates
- * provided in memory it behaves synchronously (SPEC §2.5).
+ * v1 SLICE: aggregators are not implemented yet. `expand` is a faithful pass-through —
+ * it returns the template unchanged. (A template that actually contains `@{ABSORB/MERGE}`
+ * is out of the slice and will be rejected later by the parser.) The async signature is
+ * kept for forward compatibility with asynchronous template sources.
  */
 
-import { NotImplementedError } from '../util/errors.js';
-
 /**
- * Arguments for {@link expand}.
  * @typedef {Object} ExpandArgs
- * @property {string} template Root template source.
- * @property {Record<string, string>} [templates] Named templates available to ABSORB/MERGE.
+ * @property {string} template
+ * @property {Record<string, string>} [templates]
  */
 
 /**
- * Pre-pass: expands aggregators into a flat document on which execution then runs.
- * Imported requirements flow naturally into the symbol table (IMPL §8). v1 placeholder.
- *
- * @param {ExpandArgs} _args
+ * @param {ExpandArgs} args
  * @param {import('../index.js').EngineConfig} [_config]
- * @returns {Promise<string>} The composed (flattened) template source.
+ * @returns {Promise<string>}
  */
-export async function expand(_args, _config) {
-  throw new NotImplementedError('macros.expand');
+export async function expand(args, _config) {
+  return args.template;
 }
