@@ -206,10 +206,12 @@ Created ──▶ Running ──▶ Waiting(Need…) ──▶ Running ──▶
 
 ## v1 scope notes (clarifications)
 
-- No streaming exposed; `optimizations.stream` is accepted but inert.
-- All optimizations off by default; `lazyParse`/`astCache`/`stream`/`objectPool` not
-  implemented.
-- No external runtime dependencies. `fake.*` is only an example via `defineLibrary`.
+- All optimizations are **off by default**. `optimizations.astCache` is implemented as a
+  transparent in-memory parse/analysis cache (IMPL §11/§12.1); `lazyParse`, `stream` and
+  `objectPool` are accepted but inert. See [`PERFORMANCE.md`](PERFORMANCE.md).
+- No streaming output (`steboStream`) is exposed in v1.
+- No external runtime dependencies. A built-in `fake.*` library is **not** shipped; it is only
+  an example of what `defineLibrary` enables.
 - `date(pattern, text)` uses an internal mini parser/formatter over a normative token
   subset (`YYYY MM DD HH mm ss Z`).
 

@@ -197,3 +197,165 @@ Raising the template to `trustLevel: 'trusted'` allows the capability. Independe
 function, or custom transformer) outside `allowedFunctions`, is reported as `POLICY_FORBIDDEN`
 (`data: { kind, name }`). Builtin methods are part of an allowed type's surface and are not
 gated by `allowedFunctions`. When a list is omitted, no restriction applies.
+
+## Realistic examples
+
+### Multi-turn (interactive) resolution
+
+When some capabilities are interactive (e.g. asking a human), drive to the first point where
+their input is needed, hand the pending requirements back to your UI, then resume with
+`stopOn` so the engine returns rather than blocking on those capabilities.
+
+```js
+const engine = createEngine({
+  capabilities: {
+    crm: (req) => ({ order: { id: 42 } })[req.id], // non-interactive (data)
+    user: () => undefined, // interactive: resolved by the host UI
+  },
+});
+
+const template =
+  "Order ${ crm({ id:'order', type:object() }).id } for " +
+  "${ user({ id:'name', label:'Customer name', type:string() }) }.";
+
+// First turn: resolve everything except `user`, which is returned to us.
+let state = await engine.drive(template, { stopOn: ['user'] });
+state.status; // 'waiting'
+state.pending; // [{ id:'name', capability:'user', label:'Customer name', type:{…} }]
+
+// Render the pending requirements as a form, collect the answer, then resume.
+state = await engine.drive(
+  { ...state, resolved: { ...state.resolved, name: 'Ada' } },
+  { stopOn: ['user'] }
+);
+state.status; // 'completed'
+state.output; // 'Order 42 for Ada.'
+```
+
+A requirement's `type.constraints.values` is surfaced by `analyze` as `options`, so a UI can
+render a select box without hard-coding choices:
+
+```js
+const a = engine.analyze(
+  "${ user({ id:'plan', type: array().constraints({ values:['Free','Pro'] }) }) }"
+);
+a.requirements.find((r) => r.id === 'plan').options; // ['Free', 'Pro']
+```
+
+### Composition with aggregator macros
+
+`ABSORB` inlines one template; `MERGE` concatenates templates whose name matches an anchored
+glob (`*`/`?`), in stable sorted order. Imported requirements flow into the same resolution.
+
+```js
+const res = await engine.stebo({
+  template: "@{ABSORB('header')}\nBody for ${ name }\nFooter: @{MERGE('foot_*', ' | ')}",
+  templates: {
+    header: '=== Report ===',
+    foot_1: 'Page 1',
+    foot_2: 'Page 2',
+  },
+  values: { name: 'Ada' },
+});
+// === Report ===
+// Body for Ada
+// Footer: Page 1 | Page 2
+```
+
+### Conditional layout with `@{REMOVE_LINE}`
+
+Layout macros let a formula remove its own line when a value is empty (SPEC §2.7):
+
+```js
+const res = await engine.stebo({
+  template: ['From: noreply@acme.io', "${ note != '' ? 'Note: ' + note : '@{REMOVE_LINE}' }"].join(
+    '\n'
+  ),
+  values: { note: '' },
+});
+res.output; // 'From: noreply@acme.io'  (the empty-note line is removed)
+```
+
+### Deterministic output (clock injection)
+
+Non-deterministic producers (`now()`) read a clock from the config; fix it for reproducible
+previews and tests:
+
+```js
+const engine = createEngine({ clock: () => new Date('2026-06-26T10:00:00Z') });
+(await engine.stebo({ template: '${ now().year() }' })).output; // '2026'
+```
+
+## Common errors
+
+Diagnostics carry a stable `code` (the contract — never switch on `message`). Where they
+surface depends on whether the cause is structural (static) or value-dependent (runtime).
+
+| Symptom                                             | Code                                 | Where it surfaces                      |
+| --------------------------------------------------- | ------------------------------------ | -------------------------------------- |
+| Reference to an undeclared name                     | `UNDECLARED_NAME`                    | `validate`                             |
+| Unknown producer / un-enabled library               | `UNKNOWN_FUNCTION`                   | `validate` (and `run`)                 |
+| Method not on the inferred receiver type            | `UNKNOWN_METHOD`                     | `validate` (and `run`)                 |
+| Wrong argument count                                | `ARITY_MISMATCH`                     | `validate` (and `run`)                 |
+| Provable operator/argument type violation           | `TYPE_ERROR`                         | `validate`                             |
+| `match` without `*` over an open domain             | `NON_EXHAUSTIVE_MATCH`               | `validate`                             |
+| `require` cites an unregistered capability          | `UNKNOWN_CAPABILITY`                 | `validate`                             |
+| Type/function/capability excluded by `policy`       | `POLICY_FORBIDDEN`                   | `validate`                             |
+| Malformed syntax                                    | `SYNTAX_ERROR`                       | `parse` throws; `validate` returns one |
+| Value violates its own `constraints`                | `CONSTRAINT_VIOLATION`               | `run` (failed state)                   |
+| Type error only knowable from values                | `TYPE_ERROR_RUNTIME`                 | `run`                                  |
+| Division by zero                                    | `DIVISION_BY_ZERO`                   | `run`                                  |
+| Inclusion cycle / too-deep inclusion                | `INCLUSION_CYCLE` / `DEPTH_EXCEEDED` | `expand` → failed state                |
+| A resource limit was exceeded                       | `*_LIMIT_EXCEEDED`, `TIMEOUT`        | parse / run / driver                   |
+| Capability forbidden / errored / returned bad value | `CAPABILITY_*`                       | driver (failed state)                  |
+| State from a newer engine                           | `UNSUPPORTED_STATE_VERSION`          | `run`                                  |
+
+Two gotchas worth calling out:
+
+- **No implicit coercion.** `1 + 'a'` is a `TYPE_ERROR`; concatenate with `string(...)`:
+  `string(1) + 'a'`.
+- **"Empty" is `''` / `[]` / `{}`** for `??` — `0` and `false` are **not** empty, so
+  `0 ?? 9` is `0`.
+
+## Debugging
+
+The static, pure methods are the fastest way to understand a template without running it:
+
+```js
+// 1. Lexing (error-tolerant; never throws) — what the scanner sees.
+engine.tokenize('Hi ${ name.upper() }');
+
+// 2. Parsing — the AST, or a thrown SYNTAX_ERROR with a position.
+try {
+  engine.parse('${ 1 + }');
+} catch (e) {
+  e.code; // 'SYNTAX_ERROR'
+  e.position; // { start, end } offsets into the source
+}
+
+// 3. Validation — all static diagnostics at once (never throws).
+engine.validate('${ nome }').map((d) => d.code); // ['UNDECLARED_NAME']
+
+// 4. Analysis — what the template needs and in what order.
+const a = engine.analyze("${ user({ id:'x', type:string(), capability:'user' }) }");
+a.requirements; // declared requirements (enriched with phase/options)
+a.executionPlan; // requirements grouped by phase
+a.capabilitiesUsed; // ['user']
+a.deterministic; // false when now()/fake.* appear
+```
+
+When `stebo`/`run` returns `status: 'failed'`, the cause is in `state.diagnostics` (each with
+`code`, `message`, optional `position` and `data`). A `waiting` state exposes the open
+requirements in `state.pending`. The whole `PublicState` is JSON-serializable, so you can log
+it or persist it between turns:
+
+```js
+const state = engine.run(engine.start('${ int(5).constraints({ max: 3 }) }'));
+state.status; // 'failed'
+state.diagnostics[0].code; // 'CONSTRAINT_VIOLATION'
+JSON.parse(JSON.stringify(state)); // round-trips losslessly
+```
+
+To make capability outcomes observable, set `policy.audit` (a hook called per resolution,
+without the value in clear); to mask sensitive values in diagnostics and audit, list them in
+`policy.redact`.
