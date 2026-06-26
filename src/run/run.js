@@ -9,7 +9,7 @@
  * `status: 'failed'`; otherwise `status: 'completed'` with `output`.
  */
 
-import { STATE_VERSION } from '../util/versions.js';
+import { STATE_VERSION, migrateState } from '../util/versions.js';
 import { SeeboError, DiagnosticCode, createDiagnostic } from '../util/errors.js';
 import { fromJs } from '../runtime/values.js';
 import { parse } from '../parser/index.js';
@@ -89,6 +89,24 @@ export function start(template, initialValues, _config) {
  */
 export function run(state, config) {
   const phase = state.phase + 1;
+
+  // Versioning (IMPL §14): migrate an older persisted state up to the current version, and
+  // reject one from a newer engine instead of guessing its shape.
+  const migrated = migrateState(state);
+  if (!migrated.ok) {
+    return fail(
+      state,
+      phase,
+      createDiagnostic(DiagnosticCode.UNSUPPORTED_STATE_VERSION, {
+        severity: 'error',
+        phase: 'run',
+        recoverable: false,
+        message: `unsupported stateVersion ${migrated.found} (supported: ${STATE_VERSION})`,
+        data: { found: migrated.found, supported: STATE_VERSION },
+      })
+    );
+  }
+  state = migrated.state;
 
   let doc;
   try {

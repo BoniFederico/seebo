@@ -40,6 +40,36 @@ test('POLICY_FORBIDDEN when a used capability is not allow-listed', () => {
   assert.deepEqual(d?.data, { kind: 'capability', name: 'crm' });
 });
 
+test('POLICY_FORBIDDEN when a type is not in policy.allowedTypes', () => {
+  const engine = realEngine({ policy: { allowedTypes: ['string'] } });
+  const diags = engine.validate('${ int(1) }');
+  assertHasCode(diags, DiagnosticCode.POLICY_FORBIDDEN);
+  const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
+  assert.deepEqual(d?.data, { kind: 'type', name: 'int' });
+  // An allowed type produces no policy diagnostic.
+  assert.ok(!codesOf(engine.validate("${ string(1) }")).includes(DiagnosticCode.POLICY_FORBIDDEN));
+});
+
+test('POLICY_FORBIDDEN when a function is not in policy.allowedFunctions', () => {
+  const engine = realEngine({ policy: { allowedFunctions: ['date'] } });
+  const diags = engine.validate('${ now() }');
+  assertHasCode(diags, DiagnosticCode.POLICY_FORBIDDEN);
+  const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
+  assert.deepEqual(d?.data, { kind: 'function', name: 'now' });
+});
+
+test('allowedFunctions gates a custom producer but not builtin methods', () => {
+  const engine = realEngine({
+    functions: [defineFunction('greet', { eval: () => 'hi' })],
+    policy: { allowedFunctions: ['now'] },
+  });
+  assertHasCode(engine.validate('${ greet() }'), DiagnosticCode.POLICY_FORBIDDEN);
+  // Builtin methods are part of the (allowed) type surface, not gated by allowedFunctions.
+  assert.ok(
+    !codesOf(engine.validate("${ 'ab'.upper() }")).includes(DiagnosticCode.POLICY_FORBIDDEN)
+  );
+});
+
 test('builtin producers and type builders are accepted', () => {
   const engine = realEngine();
   assertCodes(engine.validate('${ now() }'), []);

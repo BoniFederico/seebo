@@ -190,4 +190,10 @@ await engine.stebo({ template: "${ require({ id:'k', type:string(), capability:'
 
 Raising the template to `trustLevel: 'trusted'` allows the capability. Independently,
 `policy.allowedCapabilities` is a hard allow-list: a capability not on the list is always
-`CAPABILITY_FORBIDDEN`.
+`CAPABILITY_FORBIDDEN`. Per-capability `audit: false` opts a capability out of the audit hook.
+
+`policy.allowedTypes` and `policy.allowedFunctions` are static allow-lists enforced by
+`validate`: a type constructor outside `allowedTypes`, or a function (producer, library
+function, or custom transformer) outside `allowedFunctions`, is reported as `POLICY_FORBIDDEN`
+(`data: { kind, name }`). Builtin methods are part of an allowed type's surface and are not
+gated by `allowedFunctions`. When a list is omitted, no restriction applies.

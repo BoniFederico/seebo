@@ -145,7 +145,41 @@ export function evaluateDocument(ast, resolved, config) {
 
   const pending = [...ctx.needs.values()];
   if (pending.length > 0) return { status: 'waiting', pending };
+
+  // Output size limit (SPEC §1.11, IMPL §13): guard against runaway documents. Measured in
+  // UTF-8 bytes to match the normative "maxOutputBytes" unit.
+  const maxOutputBytes = config?.limits?.maxOutputBytes ?? DEFAULT_LIMITS.maxOutputBytes;
+  if (maxOutputBytes > 0 && byteLength(output) > maxOutputBytes) {
+    return {
+      status: 'failed',
+      pending: [],
+      diagnostics: [
+        createDiagnostic(DiagnosticCode.OUTPUT_LIMIT_EXCEEDED, {
+          severity: 'error',
+          phase: 'run',
+          recoverable: false,
+          message: `output exceeds maxOutputBytes (${maxOutputBytes})`,
+          data: { limit: maxOutputBytes },
+        }),
+      ],
+    };
+  }
   return { status: 'completed', output, pending: [] };
+}
+
+/** UTF-8 byte length of a string without allocating a Buffer for the common ASCII case. @param {string} s @returns {number} */
+function byteLength(s) {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) bytes += 1;
+    else if (c < 0x800) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      bytes += 4; // surrogate pair → one 4-byte code point
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 /**

@@ -47,7 +47,7 @@ crash.
 | `maxDepth`        | 20        | expand      | `DEPTH_EXCEEDED`               | deep/recursive template inclusion |
 | `maxPhases`       | 10        | driver      | `MAX_PHASES_EXCEEDED`          | non-terminating conversation loop |
 | `timeoutMs`       | 2000      | driver      | `TIMEOUT` / `CAPABILITY_ERROR` | slow/hung capability provider     |
-| `maxOutputBytes`  | 1 000 000 | (reserved)  | `OUTPUT_LIMIT_EXCEEDED`        | oversized rendered output         |
+| `maxOutputBytes`  | 1 000 000 | run         | `OUTPUT_LIMIT_EXCEEDED`        | oversized rendered output         |
 
 How a breach surfaces:
 
@@ -57,6 +57,8 @@ How a breach surfaces:
 - **`maxSteps`** is checked per `evaluate` call; on breach the pass yields `STEP_LIMIT_EXCEEDED`
   and `run` returns `status: 'failed'`.
 - **`maxDepth`** (inclusion) is enforced by `expand`; `stebo` turns it into a `failed` state.
+- **`maxOutputBytes`** is checked on the emitted text (UTF-8 bytes) when a pass completes;
+  on breach `run` returns `status: 'failed'` with `OUTPUT_LIMIT_EXCEEDED`.
 - **`maxPhases`/`timeoutMs`** are enforced by the async driver.
 
 Limits are off the hot path: a normal template parses and evaluates well under every default.
@@ -95,10 +97,13 @@ Capabilities are the only path to sensitive data, so their use is governed by `p
 (SPEC §2.2, IMPL §13), checked **before** a provider runs:
 
 - `allowedCapabilities` — hard allow-list; an unlisted capability is `CAPABILITY_FORBIDDEN`.
+- `allowedTypes` / `allowedFunctions` — static allow-lists checked by `validate`; a forbidden
+  type constructor or function (producer, library fn, custom transformer) is `POLICY_FORBIDDEN`.
 - `capabilityRules[cap].allowFrom: 'trusted'` — forbids the capability when the template's
   `policy.trustLevel` is not `'trusted'` (`CAPABILITY_FORBIDDEN`).
 - `redact` — values of listed capabilities are masked in diagnostics/audit (incl. `InvalidValue`).
-- `audit` — a hook invoked per capability resolution **without** the value in clear.
+- `audit` — a hook invoked per capability resolution **without** the value in clear;
+  `capabilityRules[cap].audit: false` opts a specific capability out of auditing.
 
 A provider value is always validated against the requirement's declared type/constraints; an
 invalid value never enters `resolved` (`CAPABILITY_INVALID_VALUE`).
@@ -110,8 +115,5 @@ invalid value never enters `resolved` (`CAPABILITY_INVALID_VALUE`).
 - **CPU/memory quotas beyond the documented limits.** The limits bound work proportionally but
   are not a hard sandbox; run untrusted templates in an appropriately isolated process if you
   need OS-level guarantees.
-- **`maxOutputBytes` enforcement** is reserved (the code exists; wiring lands with streaming).
-- **Custom-type runtime construction** is not yet wired (the type name is reserved/validated
-  only — see [`USAGE.md`](USAGE.md)).
 - **Secrecy of trusted extension code.** `define*`/capabilities are trusted by definition; the
   engine does not sandbox them.

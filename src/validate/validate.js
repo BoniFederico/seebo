@@ -69,8 +69,27 @@ export function validate(template, config) {
   const symbols = collectDeclarations(ast);
   const capabilities = new Set(Object.keys(cfg.capabilities ?? {}));
   const allowedCapabilities = cfg.policy?.allowedCapabilities;
+  const allowedTypes = cfg.policy?.allowedTypes;
+  const allowedFunctions = cfg.policy?.allowedFunctions;
   const libraries = new Set(cfg.libraries ?? []);
   const registry = /** @type {any} */ (cfg).registry;
+
+  /**
+   * Emits {@link DiagnosticCode.POLICY_FORBIDDEN} when an allow-list is present and excludes
+   * `name`. A missing allow-list (`undefined`) imposes no restriction (SPEC §2.2).
+   * @param {string[] | undefined} allowList @param {'type'|'function'} kind
+   * @param {string} name @param {import('../ast/nodes.js').Expr} node
+   */
+  function checkPolicy(allowList, kind, name, node) {
+    if (allowList && !allowList.includes(name)) {
+      diagnostics.push(
+        diag(DiagnosticCode.POLICY_FORBIDDEN, node, `${kind} '${name}' is forbidden by policy`, {
+          kind,
+          name,
+        })
+      );
+    }
+  }
 
   /** @type {import('../util/errors.js').Diagnostic[]} */
   const diagnostics = [];
@@ -134,6 +153,9 @@ export function validate(template, config) {
             })
           );
         }
+        // A library function is part of the function vocabulary (`policy.allowedFunctions`),
+        // gated by its qualified `ns.name`.
+        checkPolicy(allowedFunctions, 'function', `${e.ns}.${e.name}`, e);
         for (const arg of e.args) walk(arg);
         return 'unknown';
       case 'Unary': {
@@ -177,11 +199,13 @@ export function validate(template, config) {
       return declaredCallType(call);
     }
     if (TYPE_NAMES.has(callee)) {
+      checkPolicy(allowedTypes, 'type', callee, call);
       checkArity(call, callee, 0, 1);
       for (const arg of call.args) walk(arg);
       return /** @type {import('./infer.js').InferredType} */ (callee);
     }
     if (callee in PRODUCERS) {
+      checkPolicy(allowedFunctions, 'function', callee, call);
       const p = PRODUCERS[callee];
       checkArity(call, callee, p.min, p.max);
       checkArgs(call.callee, call.args, p.args ?? []);
@@ -189,12 +213,14 @@ export function validate(template, config) {
     }
     const custom = registry?.getProducer?.(callee);
     if (custom) {
+      checkPolicy(allowedFunctions, 'function', callee, call);
       if (custom.arity) checkArity(call, callee, custom.arity.min, custom.arity.max);
       for (const arg of call.args) walk(arg);
       return 'unknown';
     }
     // A custom type constructor `T(value)` (defineType): one value argument (SPEC §2.6).
     if (registry?.getType?.(callee)) {
+      checkPolicy(allowedTypes, 'type', callee, call);
       checkArity(call, callee, 1, 1);
       for (const arg of call.args) walk(arg);
       return 'unknown';
@@ -220,8 +246,12 @@ export function validate(template, config) {
 
     const s = methodSig(recvType, method.name);
     if (!s) {
-      // A custom transformer registered for this receiver type takes over (SPEC §2.6).
-      if (registry?.getTransformer?.(recvType, method.name)) return 'unknown';
+      // A custom transformer registered for this receiver type takes over (SPEC §2.6); as a
+      // function it is also subject to `policy.allowedFunctions`.
+      if (registry?.getTransformer?.(recvType, method.name)) {
+        checkPolicy(allowedFunctions, 'function', method.name, method);
+        return 'unknown';
+      }
       diagnostics.push(
         diag(
           DiagnosticCode.UNKNOWN_METHOD,

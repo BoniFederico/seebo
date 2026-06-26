@@ -174,8 +174,11 @@ Three independently-versioned contracts cross the engine↔application boundary:
 - `stateVersion` — the `PublicState` shape (`src/run/run.js`).
 - `analysisVersion` — the `Analysis` shape (`src/analyze/analyze.js`).
 
-All start at `1` (clarifications §11). State migrators (`src/util/versions.js#migrations`)
-are an empty, future-ready list in v1.
+All start at `1` (clarifications §11). On `run`, a persisted `PublicState` is passed through
+`migrateState` (`src/util/versions.js`): an older `stateVersion` is upgraded by applying the
+registered migrators in sequence `v → v+1` (the `migrations` list is empty in v1), and a
+**newer** `stateVersion` is rejected with `UNSUPPORTED_STATE_VERSION` rather than guessed
+(IMPL §14, forward-compat not guaranteed).
 
 ## Security & limits
 
