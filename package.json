@@ -19,13 +19,17 @@
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
     "test:conformance": "node --test \"test/conformance/**/*.test.js\"",
     "test:watch": "node --test --watch",
-    "lint": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "bench": "node bench/index.js"
   },
   "devDependencies": {
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "globals": "^17.7.0",
     "prettier": "^3.3.0",
     "typescript": "^5.5.0"
   }
