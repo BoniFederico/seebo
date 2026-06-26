@@ -34,6 +34,8 @@ export const ExprKind = Object.freeze({
   BINARY: 'Binary',
   TERNARY: 'Ternary',
   NAMESPACE: 'Namespace',
+  OBJECT_LIT: 'ObjectLit',
+  ARRAY_LIT: 'ArrayLit',
 });
 
 /**
@@ -95,8 +97,9 @@ export const ExprKind = Object.freeze({
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Union of expression nodes (IMPL §3.1).
- * @typedef {LitNode | RefNode | CallNode | MethodNode | MemberNode | UnaryNode | BinaryNode | TernaryNode | NamespaceNode} Expr
+ * Union of expression nodes (IMPL §3.1, extended with object/array literals which the
+ * grammar uses as producer arguments and choice-list values, SPEC §1.3/§1.5/§1.7).
+ * @typedef {LitNode | RefNode | CallNode | MethodNode | MemberNode | UnaryNode | BinaryNode | TernaryNode | NamespaceNode | ObjectLitNode | ArrayLitNode} Expr
  */
 
 /**
@@ -184,4 +187,28 @@ export const ExprKind = Object.freeze({
  * @property {string} ns
  * @property {string} name
  * @property {Expr[]} args
+ */
+
+/**
+ * Object literal `{ key: expr, ... }` (SPEC §1.5/§1.6 descriptors, §1.3 format/constraints).
+ * Keys are static identifiers (or string keys); values are arbitrary expressions.
+ * @typedef {Object} ObjectEntry
+ * @property {string} key
+ * @property {Expr} value
+ */
+
+/**
+ * Object literal node.
+ * @typedef {Object} ObjectLitNode
+ * @property {'ObjectLit'} kind
+ * @property {Position} position
+ * @property {ObjectEntry[]} entries
+ */
+
+/**
+ * Array literal `[expr, ...]` (SPEC §1.5 `array([...])`, §1.7 choice-list values).
+ * @typedef {Object} ArrayLitNode
+ * @property {'ArrayLit'} kind
+ * @property {Position} position
+ * @property {Expr[]} elements
  */

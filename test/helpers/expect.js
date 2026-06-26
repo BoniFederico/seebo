@@ -46,6 +46,28 @@ export function assertNotImplemented(fn) {
 }
 
 /**
+ * Deep-clones an AST node/value with every `position` field removed, so structural
+ * `deepEqual` comparisons stay readable and independent of offsets (positions are covered
+ * by dedicated tests). Pure; does not mutate the input.
+ * @template T
+ * @param {T} node
+ * @returns {T}
+ */
+export function stripPositions(node) {
+  if (Array.isArray(node)) return /** @type {any} */ (node.map(stripPositions));
+  if (node && typeof node === 'object') {
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'position') continue;
+      out[k] = stripPositions(/** @type {any} */ (v));
+    }
+    return /** @type {any} */ (out);
+  }
+  return node;
+}
+
+/**
  * Normalizes text output for stable comparison: trims trailing whitespace per line and a
  * single trailing newline. Conformance outputs should already be exact; this guards
  * against incidental editor/OS newline noise.

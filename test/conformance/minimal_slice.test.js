@@ -97,11 +97,13 @@ test('SPEC §2.3 — malformed formula fails with SYNTAX_ERROR', async () => {
   assert.equal(r.diagnostics?.[0]?.code, 'SYNTAX_ERROR');
 });
 
-// Slice boundary — an out-of-subset reference (bare identifier) is rejected.
-test('slice boundary — bare identifier is rejected (SYNTAX_ERROR)', async () => {
+// Slice boundary — a bare identifier now PARSES (full parser → Ref), but the slice
+// evaluator does not evaluate references yet, so it fails at run time (not parse time).
+test('slice boundary — bare identifier parses but is not yet evaluable', async () => {
   const r = await render('${ nome }');
   assert.equal(r.status, Status.FAILED);
-  assert.equal(r.diagnostics?.[0]?.code, 'SYNTAX_ERROR');
+  assert.equal(r.diagnostics?.[0]?.code, 'TYPE_ERROR_RUNTIME');
+  assert.equal(r.diagnostics?.[0]?.phase, 'run');
 });
 
 // SPEC §2.4 — a completed state is serializable (IMPL §6.1).

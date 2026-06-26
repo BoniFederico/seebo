@@ -52,9 +52,9 @@ and signatures) plus an `index.js` **barrel** that re-exports them.
 
 | Module          | Contract file(s)           | Responsibility                                                               | Spec             |
 | --------------- | -------------------------- | ---------------------------------------------------------------------------- | ---------------- |
-| `src/lexer/`    | `tokens.js`                | `Token`, `TokenType`, source `Position`; `tokenize` (error-tolerant) / `lex` | IMPL §2          |
-| `src/ast/`      | `nodes.js`                 | `Document` and node/`Expr` shapes; node factories                            | IMPL §3.1        |
-| `src/parser/`   | `index.js`                 | recursive descent + Pratt; `parse`; `PRECEDENCE` table                       | IMPL §3          |
+| `src/lexer/`    | `tokens.js` + `lexer.js`   | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant) | IMPL §2          |
+| `src/ast/`      | `nodes.js`                 | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)             | IMPL §3.1        |
+| `src/parser/`   | `parser.js`                | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`           | IMPL §3          |
 | `src/runtime/`  | `values.js`                | `Value` model, type/format/constraints shapes, builders                      | IMPL §4          |
 | `src/eval/`     | `evaluator.js`             | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`           | IMPL §5          |
 | `src/run/`      | `run.js`                   | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`             | IMPL §6          |

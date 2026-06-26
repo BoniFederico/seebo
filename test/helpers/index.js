@@ -9,6 +9,7 @@ export {
   assertCodes,
   assertHasCode,
   assertNotImplemented,
+  stripPositions,
   normalizeOutput,
 } from './expect.js';
 
