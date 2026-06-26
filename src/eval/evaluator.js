@@ -97,7 +97,11 @@ function evalLit(expr) {
   }
 }
 
-/** @param {import('../ast/nodes.js').UnaryNode} expr */
+/**
+ * @param {import('../ast/nodes.js').UnaryNode} expr
+ * @param {EvalEnv} env
+ * @param {import('../index.js').EngineConfig} [config]
+ */
 function evalUnary(expr, env, config) {
   const r = evaluate(expr.arg, env, config);
   if (r.kind !== 'Ok') return r;
@@ -108,7 +112,11 @@ function evalUnary(expr, env, config) {
   return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op: expr.op, got: r.value.type });
 }
 
-/** @param {import('../ast/nodes.js').BinaryNode} expr */
+/**
+ * @param {import('../ast/nodes.js').BinaryNode} expr
+ * @param {EvalEnv} env
+ * @param {import('../index.js').EngineConfig} [config]
+ */
 function evalBinary(expr, env, config) {
   const l = evaluate(expr.left, env, config);
   if (l.kind !== 'Ok') return l;

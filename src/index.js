@@ -172,7 +172,7 @@ export function createEngine(config = {}) {
 
   /**
    * @typedef {Object} Engine
-   * @property {EngineConfig} config
+   * @property {ReturnType<typeof normalizeConfig>} config
    * @property {(template: string) => import('./lexer/tokens.js').Token[]} tokenize
    * @property {(template: string) => import('./ast/nodes.js').Document} parse
    * @property {(template: string) => import('./util/errors.js').Diagnostic[]} validate

@@ -69,6 +69,7 @@ export function tokenize(input, options = {}) {
   const sigilMacro = d.macro;
   const open = d.open;
   const close = d.close;
+  /** @param {string} ch */
   const isSigil = (ch) => ch === sigilFormula || ch === sigilComment || ch === sigilMacro;
 
   const n = input.length;

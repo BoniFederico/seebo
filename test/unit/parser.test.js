@@ -12,9 +12,18 @@ import { tokenize } from '../../src/lexer/lexer.js';
 import { parse, PRECEDENCE } from '../../src/parser/parser.js';
 import { realEngine, stripPositions } from '../helpers/index.js';
 
-/** Parse a whole template into a Document (positions stripped). */
-const doc = (src, opts = {}) => stripPositions(parse(tokenize(src, opts), { source: src, ...opts }));
-/** Parse the expression inside a single `${ … }` formula (positions stripped). */
+/**
+ * Parse a whole template into a Document (positions stripped).
+ * @param {string} src
+ * @param {Record<string, unknown>} [opts]
+ */
+const doc = (src, opts = {}) =>
+  stripPositions(parse(tokenize(src, opts), { source: src, ...opts }));
+/**
+ * Parse the expression inside a single `${ … }` formula (positions stripped).
+ * @param {string} src
+ * @param {Record<string, unknown>} [opts]
+ */
 const expr = (src, opts = {}) => {
   const d = parse(tokenize(`\${ ${src} }`, opts), { source: `\${ ${src} }`, ...opts });
   return stripPositions(/** @type {any} */ (d.nodes[0]).expr);
@@ -259,7 +268,7 @@ test('explicit require is left untouched', () => {
  * ----------------------------------------------------------------------------------- */
 
 test('document: text, formula, comment and macro nodes', () => {
-  const d = doc("Hi ${ 1 } #{ note } @{ REMOVE_LINE }");
+  const d = doc('Hi ${ 1 } #{ note } @{ REMOVE_LINE }');
   assert.deepEqual(
     d.nodes.map((/** @type {any} */ n) => n.kind),
     ['Text', 'Formula', 'Text', 'Comment', 'Text', 'Macro']

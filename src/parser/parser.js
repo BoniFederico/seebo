@@ -50,8 +50,6 @@ export const PRECEDENCE = Object.freeze({
   '?:': { level: 10, assoc: 'right', binding: 420 },
 });
 
-/** Binding power of unary prefix operators (SPEC §1.4 level 2 — tighter than `*`). */
-const UNARY_BINDING = 600;
 /** Binding power of the ternary `?:` (SPEC §1.4 level 10), right-associative. */
 const TERNARY_BINDING = PRECEDENCE['?:'].binding;
 
@@ -128,7 +126,11 @@ function parseSlot(ctx) {
   return { kind: 'Formula', position: span(openTok, close), expr };
 }
 
-/** @param {Context} ctx @param {import('../lexer/tokens.js').Token} openTok */
+/**
+ * @param {Context} ctx
+ * @param {import('../lexer/tokens.js').Token} openTok
+ * @returns {import('../ast/nodes.js').MacroNode}
+ */
 function parseMacro(ctx, openTok) {
   const nameTok = ctx.expect(TokenType.MACRO_NAME, 'expected a macro name');
   const name = ctx.text(nameTok);
@@ -177,7 +179,13 @@ function parseExpr(ctx, minBinding) {
       const thenExpr = parseExpr(ctx, 0);
       ctx.expectPunct(TokenType.OPERATOR, ':', "expected ':' in ternary");
       const elseExpr = parseExpr(ctx, TERNARY_BINDING);
-      left = { kind: 'Ternary', position: span(left, elseExpr), cond: left, then: thenExpr, else: elseExpr };
+      left = {
+        kind: 'Ternary',
+        position: span(left, elseExpr),
+        cond: left,
+        then: thenExpr,
+        else: elseExpr,
+      };
       continue;
     }
 
@@ -261,14 +269,29 @@ function parseAtom(ctx) {
       ctx.next();
       const raw = ctx.text(tok);
       const isFloat = raw.includes('.');
-      return { kind: 'Lit', position: span(tok, tok), type: isFloat ? 'float' : 'int', value: Number(raw) };
+      return {
+        kind: 'Lit',
+        position: span(tok, tok),
+        type: isFloat ? 'float' : 'int',
+        value: Number(raw),
+      };
     }
     case TokenType.STRING:
       ctx.next();
-      return { kind: 'Lit', position: span(tok, tok), type: 'string', value: unquote(ctx.text(tok)) };
+      return {
+        kind: 'Lit',
+        position: span(tok, tok),
+        type: 'string',
+        value: unquote(ctx.text(tok)),
+      };
     case TokenType.BOOL:
       ctx.next();
-      return { kind: 'Lit', position: span(tok, tok), type: 'bool', value: ctx.text(tok) === 'true' };
+      return {
+        kind: 'Lit',
+        position: span(tok, tok),
+        type: 'bool',
+        value: ctx.text(tok) === 'true',
+      };
     case TokenType.NAME:
       ctx.next();
       return { kind: 'Ref', position: span(tok, tok), name: ctx.text(tok) };
@@ -409,10 +432,16 @@ function parseMatch(ctx, subject) {
   // Desugar to nested ternaries. When there is no default arm, the innermost else falls
   // back to the empty string; validate (future) is responsible for flagging
   // NON_EXHAUSTIVE_MATCH when the cases are not provably exhaustive (IMPL §3).
-  let elseExpr =
-    defaultExpr ?? { kind: 'Lit', position: span(close, close), type: 'string', value: '' };
+  /** @type {import('../ast/nodes.js').Expr} */
+  let elseExpr = defaultExpr ?? {
+    kind: 'Lit',
+    position: span(close, close),
+    type: 'string',
+    value: '',
+  };
   for (let i = arms.length - 1; i >= 0; i--) {
     const arm = arms[i];
+    /** @type {import('../ast/nodes.js').BinaryNode} */
     const cond = {
       kind: 'Binary',
       position: span(subject, arm.test),
@@ -471,7 +500,10 @@ function injectCapability(args, name, position) {
   const descriptor = {
     kind: 'ObjectLit',
     position: first.position,
-    entries: [...first.entries, { key: 'capability', value: { kind: 'Lit', position, type: 'string', value: name } }],
+    entries: [
+      ...first.entries,
+      { key: 'capability', value: { kind: 'Lit', position, type: 'string', value: name } },
+    ],
   };
   return [descriptor, ...args.slice(1)];
 }
@@ -537,7 +569,8 @@ function createContext(tokens, options) {
     /** @param {string} kind @param {string} ch @param {string} message */
     expectPunct(kind, ch, message) {
       const t = tokens[pos];
-      if (!t || t.kind !== kind || source.slice(t.start, t.end) !== ch) throw this.error(message, t);
+      if (!t || t.kind !== kind || source.slice(t.start, t.end) !== ch)
+        throw this.error(message, t);
       pos++;
       return t;
     },
@@ -596,7 +629,10 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Strips the surrounding single quotes and resolves `\'` / `\\` (SPEC §1.2). */
+/**
+ * Strips the surrounding single quotes and resolves `\'` / `\\` (SPEC §1.2).
+ * @param {string} raw
+ */
 function unquote(raw) {
   return raw.slice(1, -1).replace(/\\(['\\])/g, '$1');
 }

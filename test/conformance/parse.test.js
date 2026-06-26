@@ -53,9 +53,7 @@ test('SPEC §1.2 — text/comment/formula document', () => {
 // to require(..., capability:'<name>') at parse time.
 test('SPEC §1.6 — capability producer is normalized to require', () => {
   const engine = realEngine({ capabilities: { secrets: () => undefined } });
-  const ast = stripPositions(
-    engine.parse("${ secrets({ id: 'mittente', type: string() }) }")
-  );
+  const ast = stripPositions(engine.parse("${ secrets({ id: 'mittente', type: string() }) }"));
   const expr = /** @type {any} */ (ast.nodes[0]).expr;
   assert.equal(expr.kind, 'Call');
   assert.equal(expr.callee, 'require');

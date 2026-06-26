@@ -75,7 +75,11 @@ test('createEngine returns an engine with all public methods', () => {
     'drive',
     'stebo',
   ]) {
-    assert.equal(typeof engine[method], 'function', `missing or non-function method: ${method}`);
+    assert.equal(
+      typeof (/** @type {Record<string, unknown>} */ (engine)[method]),
+      'function',
+      `missing or non-function method: ${method}`
+    );
   }
 });
 
@@ -91,7 +95,7 @@ test('createEngine applies config defaults (delimiters/limits/optimizations/poli
 
 test('no streaming facade exists in v1 (clarifications §2)', () => {
   const engine = api.createEngine();
-  assert.equal(engine.steboStream, undefined);
+  assert.equal(/** @type {Record<string, unknown>} */ (engine).steboStream, undefined);
   assert.equal(/** @type {Record<string, unknown>} */ (api).steboStream, undefined);
 });
 

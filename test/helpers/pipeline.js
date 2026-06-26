@@ -66,7 +66,11 @@ export function createFakeEngine() {
     return {
       stateVersion: STATE_VERSION,
       template,
-      resolved: { ...castValues(values) },
+      // The fake stores the minimal `{ value }` shape (see castValues); cast to the
+      // real `Value` map the public state declares.
+      resolved: /** @type {Record<string, import('../../src/runtime/values.js').Value>} */ (
+        /** @type {unknown} */ ({ ...castValues(values) })
+      ),
       pending: [],
       phase: 0,
       status: Status.RUNNING,

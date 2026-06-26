@@ -27,6 +27,8 @@
     "bench": "node bench/index.js"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^26.0.1",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^9.1.2",
     "globals": "^17.7.0",

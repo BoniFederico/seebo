@@ -19,7 +19,7 @@ export { STATE_VERSION };
 
 /**
  * Conversation states (SPEC §1.9 / §2.4).
- * @type {Readonly<Record<string, string>>}
+ * @type {Readonly<Record<string, StatusValue>>}
  */
 export const Status = Object.freeze({
   RUNNING: 'running',

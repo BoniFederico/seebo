@@ -45,9 +45,9 @@ test('value constructors/stringify are placeholders in v1', () => {
 
 // IMPL §4 / clarifications §8 — dual semantics: int() is a builder, int(1) a Value.
 test('clarifications §8 — int() builder vs int(1) value', PENDING, () => {
-  const builder = makeTypeConstructor('int'); // no value ⇒ builder
+  const builder = /** @type {any} */ (makeTypeConstructor('int')); // no value ⇒ builder
   assert.equal(builder.type, 'int');
-  const value = makeTypeConstructor('int', 1); // value ⇒ Value
+  const value = /** @type {any} */ (makeTypeConstructor('int', 1)); // value ⇒ Value
   assert.equal(value.type, 'int');
   assert.equal(value.value, 1);
 });
