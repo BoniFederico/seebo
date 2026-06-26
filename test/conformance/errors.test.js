@@ -47,6 +47,22 @@ test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', () => {
   assertCodes(good, []);
 });
 
+// IMPL B.3 — a `bool` match covering both `true` and `false` is provably exhaustive even
+// without a `*` arm (closed domain), so no NON_EXHAUSTIVE_MATCH is reported.
+test('IMPL B.3 — bool match with true+false is exhaustive without default', () => {
+  const engine = realEngine({ capabilities: { user: () => undefined } });
+  const ok = engine.validate(
+    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes', false => 'no' } }"
+  );
+  assertCodes(ok, []);
+
+  // A single boolean arm does NOT cover the domain → still non-exhaustive.
+  const partial = engine.validate(
+    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes' } }"
+  );
+  assertHasCode(partial, DiagnosticCode.NON_EXHAUSTIVE_MATCH);
+});
+
 // SPEC §2.3 — a well-formed, fully-declared template yields no diagnostics.
 //   Input: ${ 1 + 2 }   Expected: validate → [].
 test('SPEC §2.3 — clean template has no diagnostics', () => {
