@@ -6,14 +6,16 @@ the developer-facing companion to the reference specs in
 [`docs/initial_docs/impl.md`](initial_docs/impl.md) (implementation). Section references
 like `SPEC §x.y` / `IMPL §x` point to those documents.
 
-> **Status: contracts + a minimal vertical slice.** The public contracts (JSDoc typedefs
->
-> - signatures) are defined. A first end-to-end slice is implemented: `tokenize`, `parse`,
->   `run`/`start`, `drive`, `stebo` (and pass-through `expand`/`finalize`) over the subset
->   **text + comment slots `#{}` + formula slots `${}` with int/float/string literals,
->   `+ - * /`, unary `-`, parentheses, and `\` escaping**. Everything else (refs, producers,
->   methods, requirements/capabilities, macros, `validate`, `analyze`) still throws
->   `NotImplementedError` or raises a structured `SYNTAX_ERROR` at the slice boundary.
+> **Status: working engine core.** Implemented end-to-end: `tokenize`, `parse`, the
+> runtime value system, the **suspendable evaluator** (`Ok | Susp | Err` with lazy gating
+> and requirement `Need`s), the pure `run` state machine, and the **async driver**
+> (`drive`/`stebo`) with the four provider outcomes, `stopOn`, policy and limits.
+> The full expression grammar evaluates (literals, refs, producers, methods,
+> object/array literals, operators incl. temporal arithmetic, ternary, desugared `match`).
+> Still pending: `validate` and `analyze` (static passes), macro `expand`/`finalize`
+> (pre/post passes, currently pass-through), and libraries (`fake.*`) — these throw
+> `NotImplementedError` or are skipped in evaluation, and their conformance tests remain
+> `PENDING`.
 
 ## Design principles (SPEC §1.1)
 

@@ -1,230 +1,639 @@
 /**
- * @file Suspendable evaluator (IMPL §5). Pure function `Expr × env → Ok | Susp | Err`.
+ * @file Suspendable evaluator (IMPL §5, §6.4). Three layers, deliberately separated:
  *
- * v1 SLICE: evaluates the arithmetic/literal subset produced by the slice parser —
- * `Lit` (int/float/string), `Unary('-')`, and `Binary` with `+ - * /`. It enforces the
- * SPEC §1.4 type rules for these operators (no implicit string coercion; `/` is always
- * float; division by zero is an error). No `Susp` arises in the slice (there are no
- * requirements yet); the `Susp` outcome and the rest of the operators land in later
- * milestones.
+ *  1. **Pure evaluation helpers** — {@link ./operators.js} and {@link ./methods.js}
+ *     (no env, no suspension, no I/O).
+ *  2. **Execution state + evaluation** — this file: {@link evaluate} threads an env
+ *     (`resolved`), collects unmet `Need`s, and propagates the three-way result
+ *     `Ok | Susp | Err`; {@link createEvaluator} is the suspendable handle (step/resume).
+ *  3. **Async driver integration** — {@link ../driver/async_driver.js} (the only async
+ *     layer; satisfies Needs via capabilities between passes).
+ *
+ * Suspension model (IMPL §6.4): v1 uses **full re-evaluation** — there are no
+ * continuation frames or a saved stack. A `Need` (unmet requirement) yields `Susp`;
+ * lazy operators (`and`/`or`/`??`/ternary, and the desugared `match`) only evaluate the
+ * branches they need, so a `Need` gated behind an undecided condition is NOT emitted
+ * (this realizes the phases). `step()` runs one pure pass; `resume(satisfied)` merges new
+ * values into `resolved` and steps again — the observable "suspend/resume".
  */
 
-import { intValue, floatValue, stringValue, isNumeric, renderValue } from '../runtime/factory.js';
-import { createDiagnostic, DiagnosticCode } from '../util/errors.js';
+import {
+  makeInt,
+  makeFloat,
+  makeBool,
+  makeString,
+  makeObject,
+  makeArray,
+  makeDatetime,
+  makeDuration,
+  fromJs,
+  isValue,
+  isNumeric,
+  objectGet,
+  emptyValue,
+} from '../runtime/values.js';
+import { toText } from '../runtime/stringify.js';
+import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
+import { applyUnary, applyBinary, isEmpty } from './operators.js';
+import { applyMethod } from './methods.js';
+import { collectDeclarations, extractRequirement } from './symbols.js';
 
-export { renderValue };
-
-/**
- * Evaluation outcome tags (SPEC §1.6, IMPL §5).
- * @type {Readonly<Record<string, string>>}
- */
+/** Evaluation outcome tags (SPEC §1.6, IMPL §5). @type {Readonly<Record<string,string>>} */
 export const ResultKind = Object.freeze({ OK: 'Ok', SUSP: 'Susp', ERR: 'Err' });
 
-/**
- * Successful evaluation outcome carrying the computed {@link import('../runtime/values.js').Value}.
- * @typedef {Object} Ok
- * @property {'Ok'} kind
- * @property {import('../runtime/values.js').Value} value  The computed value.
- */
+const TYPE_NAMES = new Set([
+  'int',
+  'float',
+  'bool',
+  'string',
+  'datetime',
+  'duration',
+  'object',
+  'array',
+]);
 
 /**
- * Suspended evaluation outcome: the expression encountered an unsatisfied requirement.
- * The driver resolves the `need` and re-runs the machine.
- * @typedef {Object} Susp
- * @property {'Susp'} kind
- * @property {RequirementDescriptor} need  Descriptor of the unsatisfied requirement.
- */
-
-/**
- * Failed evaluation outcome carrying a non-recoverable diagnostic.
- * @typedef {Object} Err
- * @property {'Err'} kind
- * @property {import('../util/errors.js').Diagnostic} diagnostic  The evaluation error.
- */
-
-/**
- * Discriminated union of evaluator outcomes. Discriminate on `.kind` (see {@link ResultKind}).
+ * @typedef {Object} Ok @property {'Ok'} kind @property {import('../runtime/values.js').Value} value
+ * @typedef {Object} Susp @property {'Susp'} kind @property {RequirementDescriptor} need
+ * @typedef {Object} Err @property {'Err'} kind @property {import('../util/errors.js').Diagnostic} diagnostic
  * @typedef {Ok | Susp | Err} EvalResult
  */
 
 /**
- * Requirement descriptor (SPEC §1.6). Declared fields come from the template source;
- * `phase`/`options` are enriched by `analyze` (IMPL §9). Only `id`, `type`, `capability`
- * are mandatory.
+ * Requirement descriptor (SPEC §1.6); `phase`/`options` are analyze-derived (IMPL §9).
  * @typedef {Object} RequirementDescriptor
- * @property {string} id  Unique identifier for the requirement within the template.
- * @property {import('../runtime/values.js').TypeDescriptor} type  Expected value type and constraints.
- * @property {string} capability  Capability name that can resolve this requirement.
- * @property {string} [label]  Human-readable label shown to the end user.
- * @property {string} [description]  Extended description for the end user.
- * @property {boolean} [optional]  When `true`, the requirement may remain unresolved.
- * @property {number} [priority]  Resolver scheduling hint (higher = more urgent).
- * @property {string} [group]  Logical grouping name for UI or batching purposes.
- * @property {Record<string, unknown>} [resolverHints]  Capability-specific hints for the resolver.
- * @property {number} [phase]  Execution phase in which this requirement becomes active (set by `analyze`).
- * @property {unknown[]} [options]  Allowed value options for constrained inputs (set by `analyze`).
+ * @property {string} id
+ * @property {import('../runtime/values.js').TypeDescriptor} type
+ * @property {string} capability
+ * @property {string} [label]
+ * @property {string} [description]
+ * @property {boolean} [optional]
+ * @property {number} [priority]
+ * @property {string} [group]
+ * @property {Record<string, unknown>} [resolverHints]
+ * @property {number} [phase]
+ * @property {unknown[]} [options]
  */
 
 /**
- * Evaluation environment: the set of values already resolved for the current phase.
- * @typedef {Object} EvalEnv
- * @property {Record<string, import('../runtime/values.js').Value>} resolved  Map from requirement id to resolved {@link import('../runtime/values.js').Value}.
- */
-
-/**
- * A capability provider function: receives a {@link RequirementDescriptor} and returns
- * the resolved value (synchronously or as a Promise).
- * Must not throw; return `undefined` to indicate the requirement cannot be resolved.
+ * Capability provider: given a requirement, returns its value (synchronously or via a
+ * Promise), or `undefined` to mean "not me" (SPEC §2.2 / IMPL §7.1).
+ *
  * @callback CapabilityFn
- * @param {RequirementDescriptor} req  The requirement to resolve.
+ * @param {RequirementDescriptor} req
  * @returns {unknown | Promise<unknown>}
  */
 
 /**
- * Evaluates one expression node. Pure, synchronous, no I/O (IMPL §5).
+ * Evaluation context (execution state for one pass).
+ * @typedef {Object} EvalContext
+ * @property {Record<string, unknown>} resolved   Satisfied values by id (Value or raw JS).
+ * @property {Map<string, { kind: string, descriptor: RequirementDescriptor }>} symbols
+ * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
+ * @property {import('../index.js').EngineConfig} [config]
+ * @property {() => Date} clock
+ */
+
+/* ----------------------------------------------------------------------------------- *
+ * Document evaluation + suspendable handle
+ * ----------------------------------------------------------------------------------- */
+
+/**
+ * Evaluates a whole document against a `resolved` environment (one pure pass).
+ * @param {import('../ast/nodes.js').Document} ast
+ * @param {Record<string, unknown>} resolved
+ * @param {import('../index.js').EngineConfig} [config]
+ * @returns {{ status: 'completed'|'waiting'|'failed', output?: string, pending: RequirementDescriptor[], diagnostics?: import('../util/errors.js').Diagnostic[] }}
+ */
+export function evaluateDocument(ast, resolved, config) {
+  /** @type {EvalContext} */
+  const ctx = {
+    resolved: resolved ?? {},
+    symbols: collectDeclarations(ast),
+    needs: new Map(),
+    config,
+    clock: config?.clock ?? (() => new Date()),
+  };
+
+  let output = '';
+  for (const node of ast.nodes) {
+    if (node.kind === 'Text') {
+      output += /** @type {any} */ (node).value;
+    } else if (node.kind === 'Comment') {
+      // removed at emission (SPEC §1.2)
+    } else if (node.kind === 'Macro') {
+      // Layout macros are applied by finalize (post-pass); ignored during evaluation.
+      continue;
+    } else if (node.kind === 'Formula') {
+      const res = evaluate(/** @type {any} */ (node).expr, ctx);
+      if (res.kind === 'Ok') output += toText(res.value, config?.locale);
+      else if (res.kind === 'Err') {
+        return { status: 'failed', pending: [], diagnostics: [res.diagnostic] };
+      }
+      // Susp: the Need is recorded in ctx.needs; the slot stays a hole this pass.
+    }
+  }
+
+  const pending = [...ctx.needs.values()];
+  if (pending.length > 0) return { status: 'waiting', pending };
+  return { status: 'completed', output, pending: [] };
+}
+
+/**
+ * Creates a suspendable evaluator handle over a parsed AST (IMPL §6.4). `step()` runs one
+ * pass; `resume(satisfied)` merges values and steps again. Optionally accepts an async
+ * `driver(pending) → Promise<Record<id, value>>` for `run()`.
  *
+ * @param {import('../ast/nodes.js').Document} ast
+ * @param {{ resolved?: Record<string, unknown>, config?: import('../index.js').EngineConfig }} [options]
+ * @param {(pending: RequirementDescriptor[]) => Promise<Record<string, unknown>>} [driver]
+ */
+export function createEvaluator(ast, options = {}, driver) {
+  let resolved = { ...(options.resolved ?? {}) };
+  let phase = 0;
+  /** @type {ReturnType<typeof evaluateDocument> | null} */
+  let last = null;
+
+  function snapshot() {
+    return { ...(last ?? { status: 'running', pending: [] }), phase, resolved: { ...resolved } };
+  }
+
+  function step() {
+    phase += 1;
+    last = evaluateDocument(ast, resolved, options.config);
+    return snapshot();
+  }
+
+  /** @param {Record<string, unknown>} satisfied */
+  function resume(satisfied) {
+    resolved = { ...resolved, ...(satisfied ?? {}) };
+    return step();
+  }
+
+  async function run() {
+    if (!driver) throw new SeeboError('createEvaluator: no driver provided for run()');
+    let snap = step();
+    while (snap.status === 'waiting') {
+      const satisfied = await driver(snap.pending);
+      if (!satisfied || Object.keys(satisfied).length === 0) break; // no progress
+      snap = resume(satisfied);
+    }
+    return snap;
+  }
+
+  return {
+    ast,
+    step,
+    resume,
+    run,
+    snapshot,
+    needs: () => (last ? last.pending : []),
+  };
+}
+
+/* ----------------------------------------------------------------------------------- *
+ * Expression evaluation (the three-way, suspendable core)
+ * ----------------------------------------------------------------------------------- */
+
+/**
+ * Evaluates one expression node (IMPL §5). Pure w.r.t. external state; records active
+ * Needs into `ctx.needs`.
  * @param {import('../ast/nodes.js').Expr} expr
- * @param {EvalEnv} env
- * @param {import('../index.js').EngineConfig} [config]
+ * @param {EvalContext} ctx
  * @returns {EvalResult}
  */
-export function evaluate(expr, env, config) {
-  switch (expr.kind) {
+export function evaluate(expr, ctx) {
+  const e = /** @type {any} */ (expr);
+  switch (e.kind) {
     case 'Lit':
-      return evalLit(/** @type {any} */ (expr));
+      return evalLit(e);
+    case 'Ref':
+      return resolveRef(e.name, ctx, expr);
     case 'Unary':
-      return evalUnary(/** @type {any} */ (expr), env, config);
+      return evalUnary(e, ctx);
     case 'Binary':
-      return evalBinary(/** @type {any} */ (expr), env, config);
-    default:
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, {
-        got: expr.kind,
-        message: `unsupported expression '${expr.kind}' in v1 slice`,
+      return evalBinary(e, ctx);
+    case 'Ternary':
+      return evalTernary(e, ctx);
+    case 'Call':
+      return evalCall(e, ctx);
+    case 'Method':
+      return evalMethod(e, ctx);
+    case 'Member':
+      return evalMember(e, ctx);
+    case 'ObjectLit':
+      return evalObjectLit(e, ctx);
+    case 'ArrayLit':
+      return evalArrayLit(e, ctx);
+    case 'Namespace':
+      return err(DiagnosticCode.UNKNOWN_FUNCTION, expr, `library '${e.ns}' is not implemented`, {
+        name: `${e.ns}.${e.name}`,
       });
-  }
-}
-
-/** @param {import('../ast/nodes.js').LitNode} expr @returns {EvalResult} */
-function evalLit(expr) {
-  switch (expr.type) {
-    case 'int':
-      return ok(intValue(/** @type {number} */ (expr.value)));
-    case 'float':
-      return ok(floatValue(/** @type {number} */ (expr.value)));
-    case 'string':
-      return ok(stringValue(/** @type {string} */ (expr.value)));
     default:
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { got: expr.type });
+      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, `unsupported expression '${e.kind}'`);
   }
 }
 
+/** @param {import('../ast/nodes.js').LitNode} e */
+function evalLit(e) {
+  switch (e.type) {
+    case 'int':
+      return ok(makeInt(/** @type {number} */ (e.value)));
+    case 'float':
+      return ok(makeFloat(/** @type {number} */ (e.value)));
+    case 'bool':
+      return ok(makeBool(/** @type {boolean} */ (e.value)));
+    case 'string':
+      return ok(makeString(/** @type {string} */ (e.value)));
+    default:
+      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `unsupported literal '${e.type}'`);
+  }
+}
+
+/** @param {string} name @param {EvalContext} ctx @param {import('../ast/nodes.js').Expr} node */
+function resolveRef(name, ctx, node) {
+  if (Object.prototype.hasOwnProperty.call(ctx.resolved, name)) {
+    return ok(asValue(ctx.resolved[name]));
+  }
+  const decl = ctx.symbols.get(name);
+  if (decl) return resolveDeclaration(decl, ctx);
+  return err(DiagnosticCode.UNDECLARED_NAME, node, `'${name}' is not declared`, { name });
+}
+
+/** @param {{ kind: string, descriptor: RequirementDescriptor }} decl @param {EvalContext} ctx */
+function resolveDeclaration(decl, ctx) {
+  if (decl.kind === 'var') return resolveValueOrDefault(decl.descriptor, ctx, true);
+  return resolveRequirement(decl.descriptor, ctx);
+}
+
 /**
- * @param {import('../ast/nodes.js').UnaryNode} expr
- * @param {EvalEnv} env
- * @param {import('../index.js').EngineConfig} [config]
+ * Resolution precedence for a requirement (SPEC §1.7, IMPL §5):
+ * resolved → default → (optional ⇒ empty) → Need.
+ * @param {RequirementDescriptor} d @param {EvalContext} ctx @returns {EvalResult}
  */
-function evalUnary(expr, env, config) {
-  const r = evaluate(expr.arg, env, config);
+function resolveRequirement(d, ctx) {
+  if (Object.prototype.hasOwnProperty.call(ctx.resolved, d.id)) {
+    return ok(asValue(ctx.resolved[d.id]));
+  }
+  const type = d.type ?? { type: 'string' };
+  if (type.default !== undefined) return ok(fromJs(type.default));
+  if (d.optional === true) return ok(emptyValue(type.type));
+  ctx.needs.set(d.id, d);
+  return susp(d);
+}
+
+/** @param {RequirementDescriptor} d @param {EvalContext} ctx @param {boolean} isVar */
+function resolveValueOrDefault(d, ctx, isVar) {
+  if (Object.prototype.hasOwnProperty.call(ctx.resolved, d.id)) {
+    return ok(asValue(ctx.resolved[d.id]));
+  }
+  const type = d.type ?? { type: 'string' };
+  if (type.default !== undefined) return ok(fromJs(type.default));
+  if (isVar) {
+    return errDiag(
+      createDiagnostic(DiagnosticCode.CONSTRAINT_VIOLATION, {
+        phase: 'run',
+        recoverable: false,
+        message: `missing value for var '${d.id}'`,
+        data: { id: d.id },
+      })
+    );
+  }
+  ctx.needs.set(d.id, d);
+  return susp(d);
+}
+
+/** @param {import('../ast/nodes.js').UnaryNode} e @param {EvalContext} ctx */
+function evalUnary(e, ctx) {
+  const r = evaluate(e.arg, ctx);
   if (r.kind !== 'Ok') return r;
-  if (expr.op === '-' && isNumeric(r.value)) {
-    const n = -(/** @type {number} */ (r.value.value));
-    return ok(r.value.type === 'int' ? intValue(n) : floatValue(n));
-  }
-  return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op: expr.op, got: r.value.type });
+  return tryApply(() => applyUnary(e.op, r.value), e);
+}
+
+/** @param {import('../ast/nodes.js').BinaryNode} e @param {EvalContext} ctx */
+function evalBinary(e, ctx) {
+  if (e.op === 'and' || e.op === 'or') return evalLogical(e, ctx);
+  if (e.op === '??') return evalCoalesce(e, ctx);
+
+  // Strict operators: evaluate BOTH operands so independent Needs are collected in batch.
+  const l = evaluate(e.left, ctx);
+  const r = evaluate(e.right, ctx);
+  if (l.kind === 'Err') return l;
+  if (r.kind === 'Err') return r;
+  if (l.kind === 'Susp') return l;
+  if (r.kind === 'Susp') return r;
+  return tryApply(() => applyBinary(e.op, l.value, r.value), e);
 }
 
 /**
- * @param {import('../ast/nodes.js').BinaryNode} expr
- * @param {EvalEnv} env
- * @param {import('../index.js').EngineConfig} [config]
+ * Lazy `and`/`or` (SPEC §1.4): the right branch is only evaluated when needed.
+ * @param {import('../ast/nodes.js').BinaryNode} e @param {EvalContext} ctx @returns {EvalResult}
  */
-function evalBinary(expr, env, config) {
-  const l = evaluate(expr.left, env, config);
+function evalLogical(e, ctx) {
+  const l = evaluate(e.left, ctx);
   if (l.kind !== 'Ok') return l;
-  const r = evaluate(expr.right, env, config);
+  if (l.value.type !== 'bool')
+    return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.op}' expects bool`);
+  const leftBool = /** @type {boolean} */ (l.value.value);
+  if (e.op === 'and' && !leftBool) return ok(makeBool(false));
+  if (e.op === 'or' && leftBool) return ok(makeBool(true));
+  const r = evaluate(e.right, ctx);
   if (r.kind !== 'Ok') return r;
-  return applyBinary(expr.op, l.value, r.value, expr);
+  if (r.value.type !== 'bool')
+    return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.op}' expects bool`);
+  return ok(r.value);
 }
 
 /**
- * @param {string} op
- * @param {import('../runtime/values.js').Value} a
- * @param {import('../runtime/values.js').Value} b
- * @param {import('../ast/nodes.js').Expr} expr
- * @returns {EvalResult}
+ * Lazy `??` (SPEC §1.4): returns left if non-empty, else the right branch.
+ * @param {import('../ast/nodes.js').BinaryNode} e @param {EvalContext} ctx @returns {EvalResult}
  */
-function applyBinary(op, a, b, expr) {
-  const an = /** @type {number} */ (a.value);
-  const bn = /** @type {number} */ (b.value);
-
-  if (op === '+') {
-    if (a.type === 'string' && b.type === 'string') {
-      return ok(stringValue(/** @type {string} */ (a.value) + /** @type {string} */ (b.value)));
-    }
-    // No implicit coercion: string + non-string (or vice versa) is a type error (SPEC §1.4).
-    if (a.type === 'string' || b.type === 'string') {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op, got: `${a.type}+${b.type}` });
-    }
-    if (!isNumeric(a) || !isNumeric(b)) {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op, got: `${a.type}+${b.type}` });
-    }
-    return ok(numeric(a, b, an + bn));
-  }
-
-  if (op === '-' || op === '*') {
-    if (!isNumeric(a) || !isNumeric(b)) {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op, got: `${a.type}${op}${b.type}` });
-    }
-    return ok(numeric(a, b, op === '-' ? an - bn : an * bn));
-  }
-
-  if (op === '/') {
-    if (!isNumeric(a) || !isNumeric(b)) {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, { op, got: `${a.type}/${b.type}` });
-    }
-    if (bn === 0) return err(DiagnosticCode.DIVISION_BY_ZERO, expr, {});
-    return ok(floatValue(an / bn)); // `/` is always float (SPEC §1.4)
-  }
-
-  // Operators outside the slice (comparisons, logical, ??, etc.).
-  return err(DiagnosticCode.TYPE_ERROR_RUNTIME, expr, {
-    op,
-    message: `operator '${op}' not supported in v1 slice`,
-  });
+function evalCoalesce(e, ctx) {
+  const l = evaluate(e.left, ctx);
+  if (l.kind !== 'Ok') return l;
+  if (!isEmpty(l.value)) return l;
+  return evaluate(e.right, ctx);
 }
 
 /**
- * Numeric result type rule (SPEC §1.4): int op int → int; any float → float.
- * @param {import('../runtime/values.js').Value} a
- * @param {import('../runtime/values.js').Value} b
- * @param {number} value
+ * Lazy ternary (SPEC §1.4): only the taken branch is evaluated → gates Needs (phases).
+ * @param {import('../ast/nodes.js').TernaryNode} e @param {EvalContext} ctx @returns {EvalResult}
  */
-function numeric(a, b, value) {
-  return a.type === 'int' && b.type === 'int' ? intValue(value) : floatValue(value);
+function evalTernary(e, ctx) {
+  const c = evaluate(e.cond, ctx);
+  if (c.kind !== 'Ok') return c;
+  if (c.value.type !== 'bool')
+    return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, 'ternary condition must be bool');
+  return c.value.value ? evaluate(e.then, ctx) : evaluate(e.else, ctx);
+}
+
+/** @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx */
+function evalCall(e, ctx) {
+  if (e.callee === 'require') {
+    let descriptor;
+    try {
+      descriptor = extractRequirement(e);
+    } catch (ex) {
+      return errFrom(ex, e);
+    }
+    return resolveRequirement(descriptor, ctx);
+  }
+  if (e.callee === 'var') return resolveRef(varName(e), ctx, e);
+  if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
+  if (e.callee === 'date') return evalDate(e, ctx);
+  if (TYPE_NAMES.has(e.callee)) {
+    if (e.args.length === 0) {
+      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.callee}()' is a type builder, not a value`);
+    }
+    const args = evalList(e.args, ctx);
+    if (args.blocking) return args.blocking;
+    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
+  }
+  return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, { name: e.callee });
+}
+
+/** @param {import('../ast/nodes.js').MethodNode} e @param {EvalContext} ctx */
+function evalMethod(e, ctx) {
+  const recv = evaluate(e.receiver, ctx);
+  if (recv.kind !== 'Ok') return recv;
+  const args = evalList(e.args, ctx);
+  if (args.blocking) return args.blocking;
+  return tryApply(() => applyMethod(recv.value, e.name, /** @type {any} */ (args.values)), e);
+}
+
+/** @param {import('../ast/nodes.js').MemberNode} e @param {EvalContext} ctx */
+function evalMember(e, ctx) {
+  const recv = evaluate(e.receiver, ctx);
+  if (recv.kind !== 'Ok') return recv;
+  return tryApply(() => objectGet(recv.value, e.key), e);
+}
+
+/** @param {import('../ast/nodes.js').ObjectLitNode} e @param {EvalContext} ctx */
+function evalObjectLit(e, ctx) {
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  /** @type {EvalResult|null} */
+  let blocking = null;
+  for (const entry of e.entries) {
+    const v = evaluate(entry.value, ctx);
+    if (v.kind === 'Err') return v;
+    if (v.kind === 'Susp') blocking = blocking ?? v;
+    else if (entry.key !== '__proto__') out[entry.key] = v.value.value;
+  }
+  if (blocking) return blocking;
+  return tryApply(() => makeObject(out), e);
+}
+
+/** @param {import('../ast/nodes.js').ArrayLitNode} e @param {EvalContext} ctx */
+function evalArrayLit(e, ctx) {
+  const args = evalList(e.elements, ctx);
+  if (args.blocking) return args.blocking;
+  const values = /** @type {import('../runtime/values.js').Value[]} */ (args.values);
+  return tryApply(() => makeArray(values.map((v) => v.value)), e);
+}
+
+/* ----------------------------------------------------------------------------------- *
+ * Producers: construct / convert / date
+ * ----------------------------------------------------------------------------------- */
+
+/**
+ * Constructs or converts a value for a type producer `T(arg)` (SPEC §1.5).
+ * @param {string} type @param {import('../runtime/values.js').Value[]} args
+ * @returns {import('../runtime/values.js').Value}
+ */
+function construct(type, args) {
+  const v = args[0];
+  switch (type) {
+    case 'string':
+      return makeString(toText(v));
+    case 'int':
+      return convertInt(v);
+    case 'float':
+      return convertFloat(v);
+    case 'bool':
+      if (v.type !== 'bool') throw typeErr(`bool() expects a bool, got ${v.type}`);
+      return v;
+    case 'duration':
+      if (!isNumeric(v)) throw typeErr('duration() expects a number of seconds');
+      return makeDuration(/** @type {number} */ (v.value));
+    case 'datetime':
+      if (!isNumeric(v)) throw typeErr('datetime() expects epoch milliseconds');
+      return makeDatetime(/** @type {number} */ (v.value));
+    case 'object':
+      if (v.type !== 'object') throw typeErr(`object() expects an object, got ${v.type}`);
+      return v;
+    case 'array':
+      if (v.type !== 'array') throw typeErr(`array() expects an array, got ${v.type}`);
+      return v;
+    default:
+      throw typeErr(`unknown type '${type}'`);
+  }
+}
+
+/** @param {import('../runtime/values.js').Value} v */
+function convertInt(v) {
+  if (v.type === 'int') return v;
+  if (v.type === 'float') return makeInt(Math.trunc(/** @type {number} */ (v.value)));
+  if (v.type === 'string') {
+    const s = /** @type {string} */ (v.value).trim();
+    if (!/^[+-]?\d+$/.test(s)) throw typeErr(`int() cannot parse '${s}'`);
+    return makeInt(Number(s));
+  }
+  throw typeErr(`int() cannot convert ${v.type}`);
+}
+
+/** @param {import('../runtime/values.js').Value} v */
+function convertFloat(v) {
+  if (isNumeric(v)) return makeFloat(/** @type {number} */ (v.value));
+  if (v.type === 'string') {
+    const n = Number(/** @type {string} */ (v.value).trim());
+    if (!Number.isFinite(n)) throw typeErr(`float() cannot parse '${v.value}'`);
+    return makeFloat(n);
+  }
+  throw typeErr(`float() cannot convert ${v.type}`);
+}
+
+/** Datetime field widths for `date(pattern, text)` (clarifications §5). */
+const DATE_TOKENS = { YYYY: 4, MM: 2, DD: 2, HH: 2, mm: 2, ss: 2 };
+
+/** @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx */
+function evalDate(e, ctx) {
+  const args = evalList(e.args, ctx);
+  if (args.blocking) return args.blocking;
+  const [pat, txt] = /** @type {any} */ (args.values);
+  if (!pat || pat.type !== 'string' || !txt || txt.type !== 'string') {
+    return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, 'date(pattern, text) expects two strings');
+  }
+  return tryApply(() => makeDatetime(parseDate(pat.value, txt.value)), e);
+}
+
+/**
+ * Minimal datetime parser over the normative token subset (clarifications §5).
+ * @param {string} pattern @param {string} text @returns {number} epoch ms UTC
+ */
+function parseDate(pattern, text) {
+  const fields = { YYYY: 1970, MM: 1, DD: 1, HH: 0, mm: 0, ss: 0 };
+  let pi = 0;
+  let ti = 0;
+  while (pi < pattern.length) {
+    /** @type {keyof typeof DATE_TOKENS | null} */
+    let matched = null;
+    for (const name of /** @type {(keyof typeof DATE_TOKENS)[]} */ (Object.keys(DATE_TOKENS))) {
+      if (pattern.startsWith(name, pi)) {
+        matched = name;
+        break;
+      }
+    }
+    if (matched) {
+      const width = DATE_TOKENS[matched];
+      const slice = text.slice(ti, ti + width);
+      if (!/^\d+$/.test(slice)) throw typeErr(`date: expected ${matched} at position ${ti}`);
+      fields[matched] = Number(slice);
+      pi += matched.length;
+      ti += width;
+    } else if (pattern[pi] === 'Z') {
+      if (text[ti] !== 'Z') throw typeErr("date: expected 'Z'");
+      pi += 1;
+      ti += 1;
+    } else {
+      if (text[ti] !== pattern[pi]) throw typeErr(`date: expected '${pattern[pi]}' at ${ti}`);
+      pi += 1;
+      ti += 1;
+    }
+  }
+  return Date.UTC(fields.YYYY, fields.MM - 1, fields.DD, fields.HH, fields.mm, fields.ss);
+}
+
+/* ----------------------------------------------------------------------------------- *
+ * Helpers
+ * ----------------------------------------------------------------------------------- */
+
+/** @param {import('../ast/nodes.js').CallNode} e */
+function varName(e) {
+  const n = /** @type {any} */ (e.args[0]);
+  return n && n.kind === 'Lit' ? String(n.value) : '';
+}
+
+/** @param {unknown} x @returns {import('../runtime/values.js').Value} */
+function asValue(x) {
+  return isValue(x) ? x : fromJs(x);
+}
+
+/**
+ * Evaluates a list of expressions, collecting Needs (evaluates all even past a block).
+ * @param {import('../ast/nodes.js').Expr[]} exprs @param {EvalContext} ctx
+ * @returns {{ values: import('../runtime/values.js').Value[]|null, blocking: EvalResult|null }}
+ */
+function evalList(exprs, ctx) {
+  /** @type {import('../runtime/values.js').Value[]} */
+  const values = [];
+  /** @type {EvalResult|null} */
+  let blocking = null;
+  for (const expr of exprs) {
+    const r = evaluate(expr, ctx);
+    if (r.kind === 'Err') return { values: null, blocking: r };
+    if (r.kind === 'Susp') blocking = blocking ?? r;
+    else values.push(r.value);
+  }
+  return { values: blocking ? null : values, blocking };
+}
+
+/** @param {() => import('../runtime/values.js').Value} fn @param {import('../ast/nodes.js').Expr} node */
+function tryApply(fn, node) {
+  try {
+    return ok(fn());
+  } catch (ex) {
+    return errFrom(ex, node);
+  }
 }
 
 /** @param {import('../runtime/values.js').Value} value @returns {Ok} */
 function ok(value) {
   return { kind: 'Ok', value };
 }
-
+/** @param {RequirementDescriptor} need @returns {Susp} */
+function susp(need) {
+  return { kind: 'Susp', need };
+}
+/** @param {import('../util/errors.js').Diagnostic} diagnostic @returns {Err} */
+function errDiag(diagnostic) {
+  return { kind: 'Err', diagnostic };
+}
 /**
- * @param {string} code
- * @param {import('../ast/nodes.js').Expr} expr
- * @param {Record<string, unknown> & { message?: string }} data
- * @returns {Err}
+ * @param {string} code @param {import('../ast/nodes.js').Expr} node @param {string} message
+ * @param {Record<string, unknown>} [data] @returns {Err}
  */
-function err(code, expr, data) {
-  const { message, ...rest } = data;
-  return {
-    kind: 'Err',
-    diagnostic: createDiagnostic(code, {
+function err(code, node, message, data) {
+  return errDiag(
+    createDiagnostic(code, {
       severity: 'error',
       phase: 'run',
       recoverable: false,
-      message: message ?? code,
-      position: expr.position,
-      data: rest,
-    }),
-  };
+      message,
+      position: /** @type {any} */ (node)?.position,
+      data,
+    })
+  );
 }
+/** @param {unknown} ex @param {import('../ast/nodes.js').Expr} node @returns {Err} */
+function errFrom(ex, node) {
+  if (ex instanceof SeeboError) {
+    return errDiag(
+      createDiagnostic(ex.code ?? DiagnosticCode.TYPE_ERROR_RUNTIME, {
+        severity: 'error',
+        phase: 'run',
+        recoverable: false,
+        message: ex.message,
+        position: ex.position ?? /** @type {any} */ (node)?.position,
+      })
+    );
+  }
+  return err(DiagnosticCode.TYPE_ERROR_RUNTIME, node, ex instanceof Error ? ex.message : String(ex));
+}
+/** @param {string} msg */
+function typeErr(msg) {
+  return new SeeboError(msg, { code: DiagnosticCode.TYPE_ERROR_RUNTIME });
+}
+
+/** Backwards-compatible re-export for the slice (run.js used these). */
+export { toText as renderValue };

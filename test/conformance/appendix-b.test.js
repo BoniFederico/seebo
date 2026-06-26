@@ -20,7 +20,7 @@ import { Status } from '../../src/run/run.js';
 //   Input: ${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }
 //   With resolved {flag:false}: status completed, output 'ok', pending [].
 //   With resolved {flag:true} and x absent: status waiting, pending [x].
-test('IMPL B.2 — need in non-taken branch is not emitted', PENDING, () => {
+test('IMPL B.2 — need in non-taken branch is not emitted', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = "${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }";
 

@@ -416,10 +416,65 @@ function sign(d) {
 }
 
 /**
+ * Returns a new value with merged `format` (immutable builder, SPEC §1.5 `x.format(...)`).
+ * @param {Value} value @param {unknown} format @returns {Value}
+ */
+export function withFormat(value, format) {
+  ensureValue(value);
+  return makeValue(value.type, value.value, {
+    format: { ...value.format, ...sanitizeOptions(format) },
+    constraints: value.constraints,
+  });
+}
+
+/**
+ * Returns a new value with merged `constraints` (immutable, SPEC §1.5 `x.constraints(...)`).
+ * @param {Value} value @param {unknown} constraints @returns {Value}
+ */
+export function withConstraints(value, constraints) {
+  ensureValue(value);
+  return makeValue(value.type, value.value, {
+    format: value.format,
+    constraints: { ...value.constraints, ...sanitizeOptions(constraints) },
+  });
+}
+
+/**
+ * The "empty" value of a type (SPEC §1.7 — unsatisfied optional requirement). For
+ * string/array/object this is the SPEC «vuoto» (`''`/`[]`/`{}`); other types use their
+ * natural zero.
+ * @param {string} type
+ * @param {{ format?: unknown, constraints?: unknown }} [opts]
+ * @returns {Value}
+ */
+export function emptyValue(type, opts) {
+  switch (type) {
+    case 'string':
+      return makeString('', opts);
+    case 'array':
+      return makeArray([], opts);
+    case 'object':
+      return makeObject({}, opts);
+    case 'int':
+      return makeInt(0, opts);
+    case 'float':
+      return makeFloat(0, opts);
+    case 'bool':
+      return makeBool(false, opts);
+    case 'duration':
+      return makeDuration(0, opts);
+    case 'datetime':
+      return makeDatetime(0, opts);
+    default:
+      throw typeError(`no empty value for type '${type}'`);
+  }
+}
+
+/**
  * Deep equality for sanitized JSON (object/array values).
  * @param {unknown} a @param {unknown} b @returns {boolean}
  */
-function jsonEqual(a, b) {
+export function jsonEqual(a, b) {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
     return a.length === b.length && a.every((x, i) => jsonEqual(x, b[i]));
