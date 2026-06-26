@@ -383,13 +383,19 @@ function evalCall(e, ctx) {
   if (e.callee === 'date') return evalDate(e, ctx);
   if (TYPE_NAMES.has(e.callee)) {
     if (e.args.length === 0) {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.callee}()' is a type builder, not a value`);
+      return err(
+        DiagnosticCode.TYPE_ERROR_RUNTIME,
+        e,
+        `'${e.callee}()' is a type builder, not a value`
+      );
     }
     const args = evalList(e.args, ctx);
     if (args.blocking) return args.blocking;
     return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
   }
-  return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, { name: e.callee });
+  return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, {
+    name: e.callee,
+  });
 }
 
 /** @param {import('../ast/nodes.js').MethodNode} e @param {EvalContext} ctx */
@@ -628,7 +634,11 @@ function errFrom(ex, node) {
       })
     );
   }
-  return err(DiagnosticCode.TYPE_ERROR_RUNTIME, node, ex instanceof Error ? ex.message : String(ex));
+  return err(
+    DiagnosticCode.TYPE_ERROR_RUNTIME,
+    node,
+    ex instanceof Error ? ex.message : String(ex)
+  );
 }
 /** @param {string} msg */
 function typeErr(msg) {

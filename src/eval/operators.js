@@ -104,20 +104,25 @@ function add(a, b) {
     return makeString(/** @type {string} */ (a.value) + /** @type {string} */ (b.value));
   }
   if (a.type === 'string' || b.type === 'string') {
-    throw typeErr('+', `no implicit coercion between string and ${a.type === 'string' ? b.type : a.type}`);
+    throw typeErr(
+      '+',
+      `no implicit coercion between string and ${a.type === 'string' ? b.type : a.type}`
+    );
   }
   // temporal (IMPL §4.2)
   if (a.type === 'datetime' && b.type === 'duration') return makeDatetime(num2(a) + num2(b) * 1000);
   if (a.type === 'duration' && b.type === 'datetime') return makeDatetime(num2(b) + num2(a) * 1000);
   if (a.type === 'duration' && b.type === 'duration') return makeDuration(num2(a) + num2(b));
-  if (a.type === 'datetime' && b.type === 'datetime') throw typeErr('+', 'cannot add two datetimes');
+  if (a.type === 'datetime' && b.type === 'datetime')
+    throw typeErr('+', 'cannot add two datetimes');
   if (isNumeric(a) && isNumeric(b)) return num(num2(a) + num2(b), a, b);
   throw typeErr('+', `${a.type} + ${b.type}`);
 }
 
 /** @param {import('../runtime/values.js').Value} a @param {import('../runtime/values.js').Value} b @returns {import('../runtime/values.js').Value} */
 function subtract(a, b) {
-  if (a.type === 'datetime' && b.type === 'datetime') return makeDuration((num2(a) - num2(b)) / 1000);
+  if (a.type === 'datetime' && b.type === 'datetime')
+    return makeDuration((num2(a) - num2(b)) / 1000);
   if (a.type === 'datetime' && b.type === 'duration') return makeDatetime(num2(a) - num2(b) * 1000);
   if (a.type === 'duration' && b.type === 'duration') return makeDuration(num2(a) - num2(b));
   if (isNumeric(a) && isNumeric(b)) return num(num2(a) - num2(b), a, b);

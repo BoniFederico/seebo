@@ -164,7 +164,10 @@ async function callProvider(provider, need, cfg) {
       // a capability can never inject a value the type system would reject.
       const wantType = need.type?.type;
       if (wantType && value.type !== wantType) {
-        return { kind: ProviderOutcome.INVALID_VALUE, message: `expected ${wantType}, got ${value.type}` };
+        return {
+          kind: ProviderOutcome.INVALID_VALUE,
+          message: `expected ${wantType}, got ${value.type}`,
+        };
       }
       value = withConstraints(withFormat(value, need.type?.format), need.type?.constraints);
       const violation = validate(value);
@@ -254,7 +257,13 @@ function failed(state, code, data) {
     status: 'failed',
     pending: [],
     diagnostics: [
-      createDiagnostic(code, { severity: 'error', phase: 'run', recoverable: false, message: code, data }),
+      createDiagnostic(code, {
+        severity: 'error',
+        phase: 'run',
+        recoverable: false,
+        message: code,
+        data,
+      }),
     ],
   };
 }

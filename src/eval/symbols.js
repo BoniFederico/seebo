@@ -12,7 +12,16 @@
 import { builder } from '../runtime/values.js';
 import { SeeboError, DiagnosticCode } from '../util/errors.js';
 
-const TYPE_NAMES = new Set(['int', 'float', 'bool', 'string', 'datetime', 'duration', 'object', 'array']);
+const TYPE_NAMES = new Set([
+  'int',
+  'float',
+  'bool',
+  'string',
+  'datetime',
+  'duration',
+  'object',
+  'array',
+]);
 
 /**
  * Collects all `require`/`var` declarations from a document (all branches, statically).
@@ -24,7 +33,8 @@ export function collectDeclarations(ast) {
   const table = new Map();
   for (const node of ast.nodes) {
     if (node.kind === 'Formula') walkExpr(/** @type {any} */ (node).expr, table);
-    else if (node.kind === 'Macro') for (const a of /** @type {any} */ (node).args) walkExpr(a, table);
+    else if (node.kind === 'Macro')
+      for (const a of /** @type {any} */ (node).args) walkExpr(a, table);
   }
   return table;
 }
@@ -80,7 +90,8 @@ function children(expr) {
  */
 export function extractRequirement(call) {
   const obj = call.args[0];
-  if (!obj || obj.kind !== 'ObjectLit') throw syntax('require(...) expects a descriptor object', call);
+  if (!obj || obj.kind !== 'ObjectLit')
+    throw syntax('require(...) expects a descriptor object', call);
   const d = readDescriptorObject(/** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj));
   if (typeof d.id !== 'string') throw syntax("require descriptor needs a string 'id'", call);
   if (typeof d.capability !== 'string') {
@@ -97,7 +108,7 @@ export function extractRequirement(call) {
 function extractVar(call) {
   const nameNode = call.args[0];
   if (!nameNode || nameNode.kind !== 'Lit' || /** @type {any} */ (nameNode).type !== 'string') {
-    throw syntax("var(...) expects a string name", call);
+    throw syntax('var(...) expects a string name', call);
   }
   const id = /** @type {string} */ (/** @type {any} */ (nameNode).value);
   const typeNode = call.args[1];

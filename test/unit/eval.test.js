@@ -5,7 +5,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ResultKind, evaluate, evaluateDocument, createEvaluator } from '../../src/eval/evaluator.js';
+import {
+  ResultKind,
+  evaluate,
+  evaluateDocument,
+  createEvaluator,
+} from '../../src/eval/evaluator.js';
 import { realEngine } from '../helpers/index.js';
 
 /** @param {string} type @param {unknown} value */
@@ -89,7 +94,10 @@ test('IMPL §5 — lazy ternary gates the Need in the non-taken branch', () => {
   // flag=true → then branch → Need 'x'
   const on = evaluateDocument(ast, { flag: true }, {});
   assert.equal(on.status, 'waiting');
-  assert.deepEqual(on.pending.map((/** @type {any} */ p) => p.id), ['x']);
+  assert.deepEqual(
+    on.pending.map((/** @type {any} */ p) => p.id),
+    ['x']
+  );
 });
 
 test('IMPL §5 — independent Needs are collected in one pass (batch)', () => {
@@ -98,10 +106,7 @@ test('IMPL §5 — independent Needs are collected in one pass (batch)', () => {
   );
   const r = evaluateDocument(ast, {}, {});
   assert.equal(r.status, 'waiting');
-  assert.deepEqual(
-    r.pending.map((/** @type {any} */ p) => p.id).sort(),
-    ['a', 'b']
-  );
+  assert.deepEqual(r.pending.map((/** @type {any} */ p) => p.id).sort(), ['a', 'b']);
 });
 
 /* ----------------------------------------------------------------------------------- *
@@ -114,7 +119,10 @@ test('createEvaluator: step suspends, resume completes', () => {
 
   const s1 = ev.step();
   assert.equal(s1.status, 'waiting');
-  assert.deepEqual(s1.pending.map((/** @type {any} */ p) => p.id), ['who']);
+  assert.deepEqual(
+    s1.pending.map((/** @type {any} */ p) => p.id),
+    ['who']
+  );
   assert.equal(s1.phase, 1);
 
   const s2 = ev.resume({ who: 'World' });

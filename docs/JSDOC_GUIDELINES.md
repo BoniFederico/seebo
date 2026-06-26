@@ -26,20 +26,20 @@ The project is **plain JavaScript** — no TypeScript syntax, no `.d.ts` files, 
 
 ## 1. General rules
 
-| Rule | Rationale |
-|------|-----------|
-| Use JSDoc only — no TypeScript syntax. | The project is `.js`; TS types break plain-JS tooling. |
-| One `@typedef` per conceptual type, in the file that owns it. | Avoids duplication and drift. |
-| Cross-file references use `import(...)` paths, not bare names. | Keeps tooling-resolvable without a tsconfig. |
-| Optional properties are written `[propName]`. | Standard JSDoc convention. |
-| `@returns` is always present on non-`void` public functions. | Makes the contract explicit. |
-| Spec/impl section references (`SPEC §x`, `IMPL §x`) go in the opening description, not in `@param` lines. | Keeps param lines short. |
-| `@type {ReadonlyArray<T>}` / `@type {Readonly<Record<K,V>>}` for frozen constants. | Signals immutability to callers. |
-| Add `// TODO(doc): …` when a type is genuinely ambiguous. | Prefer an explicit marker over a silent wrong annotation. |
+| Rule                                                                                                      | Rationale                                                 |
+| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Use JSDoc only — no TypeScript syntax.                                                                    | The project is `.js`; TS types break plain-JS tooling.    |
+| One `@typedef` per conceptual type, in the file that owns it.                                             | Avoids duplication and drift.                             |
+| Cross-file references use `import(...)` paths, not bare names.                                            | Keeps tooling-resolvable without a tsconfig.              |
+| Optional properties are written `[propName]`.                                                             | Standard JSDoc convention.                                |
+| `@returns` is always present on non-`void` public functions.                                              | Makes the contract explicit.                              |
+| Spec/impl section references (`SPEC §x`, `IMPL §x`) go in the opening description, not in `@param` lines. | Keeps param lines short.                                  |
+| `@type {ReadonlyArray<T>}` / `@type {Readonly<Record<K,V>>}` for frozen constants.                        | Signals immutability to callers.                          |
+| Add `// TODO(doc): …` when a type is genuinely ambiguous.                                                 | Prefer an explicit marker over a silent wrong annotation. |
 
-**Scope of comments.** Document the *contract* (what is guaranteed to callers), not the
-implementation. One sentence describing the *why* is better than a paragraph describing
-the *how*.
+**Scope of comments.** Document the _contract_ (what is guaranteed to callers), not the
+implementation. One sentence describing the _why_ is better than a paragraph describing
+the _how_.
 
 ---
 
@@ -123,7 +123,7 @@ A factory is a function whose primary job is to construct and return an object.
 
 ### Rules
 
-- The description must state what the object *is*, not how it is built.
+- The description must state what the object _is_, not how it is built.
 - `@returns` must name the typedef, not write `{Object}`.
 - If the factory captures state via closure, document the mutable fields explicitly.
 - If the factory freezes the result, add `Immutable.` or `Deeply frozen.` to the description.
@@ -363,8 +363,8 @@ Diagnostics are non-exceptional feedback objects that accumulate during a phase.
  * @type {Readonly<Record<string, string>>}
  */
 export const DiagnosticCode = Object.freeze({
-  SYNTAX_ERROR:       'SYNTAX_ERROR',
-  UNKNOWN_VARIABLE:   'UNKNOWN_VARIABLE',
+  SYNTAX_ERROR: 'SYNTAX_ERROR',
+  UNKNOWN_VARIABLE: 'UNKNOWN_VARIABLE',
   // …
 });
 ```
@@ -433,8 +433,8 @@ AST nodes are produced by the parser and consumed by the evaluator (IMPL §3).
  * @type {Readonly<Record<string, string>>}
  */
 export const NodeKind = Object.freeze({
-  DOCUMENT:   'Document',
-  TEXT:       'Text',
+  DOCUMENT: 'Document',
+  TEXT: 'Text',
   EXPRESSION: 'Expression',
   // …
 });
@@ -545,7 +545,7 @@ A callback is a function value passed as a parameter that the engine calls at sp
 
 - Use `@callback` when the same function signature appears in more than one typedef or function signature.
 - Use the inline `(param: Type) => ReturnType` form for one-off callbacks.
-- Always note whether the callback *must not throw*, or whether the engine handles exceptions from it.
+- Always note whether the callback _must not throw_, or whether the engine handles exceptions from it.
 - Async callbacks must be typed as `(...) => Promise<void>` (or `Promise<T>`) — never plain `Function`.
 
 ---
@@ -600,7 +600,7 @@ export class EngineConfigError extends SeeboError {
 
 - Document `@extends` on every subclass.
 - Document `constructor` params with `@param` even though the class already has an opening description.
-- Do not add `@throws` to the constructor — constructors that throw are expected; document *why* in the class description.
+- Do not add `@throws` to the constructor — constructors that throw are expected; document _why_ in the class description.
 - `NotImplementedError` and similar sentinel classes need only a one-line description; no `@param` needed if the constructor takes a single obvious string.
 
 ---
@@ -660,4 +660,4 @@ Do not silently use `unknown` without a comment when a more specific type is pos
 
 ---
 
-*End of guidelines.*
+_End of guidelines._

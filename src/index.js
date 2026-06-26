@@ -221,7 +221,11 @@ export const builtins = Object.freeze({
   types: /** @type {string[]} */ ([]),
   functions: /** @type {unknown[]} */ ([]),
   macros: /** @type {unknown[]} */ ([]),
-  all: { types: /** @type {string[]} */ ([]), functions: /** @type {unknown[]} */ ([]), macros: /** @type {unknown[]} */ ([]) },
+  all: {
+    types: /** @type {string[]} */ ([]),
+    functions: /** @type {unknown[]} */ ([]),
+    macros: /** @type {unknown[]} */ ([]),
+  },
 });
 
 /** Migrators structure (empty in v1, IMPL §15). */
