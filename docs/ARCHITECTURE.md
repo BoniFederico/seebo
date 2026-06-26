@@ -163,6 +163,16 @@ Three independently-versioned contracts cross the engine↔application boundary:
 All start at `1` (clarifications §11). State migrators (`src/util/versions.js#migrations`)
 are an empty, future-ready list in v1.
 
+## Security & limits
+
+The engine runs untrusted templates and untrusted data. Configurable resource limits
+([`src/util/limits.js`](../src/util/limits.js)) bound every phase and fail with a specific
+diagnostic code (`INPUT_LIMIT_EXCEEDED`, `TOKEN_LIMIT_EXCEEDED`, `NODE_LIMIT_EXCEEDED`,
+`NESTING_LIMIT_EXCEEDED` at parse; `STEP_LIMIT_EXCEEDED` at run; `DEPTH_EXCEEDED`,
+`MAX_PHASES_EXCEEDED`, `TIMEOUT` around the driver). Prototype pollution is blocked at the
+data boundary (sanitizer + `safeSet`), and the core uses no ambient globals or `eval`. The
+full threat model, limit table and out-of-scope notes are in [`SECURITY.md`](SECURITY.md).
+
 ## Execution model (the conversation)
 
 ```

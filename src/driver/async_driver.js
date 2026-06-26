@@ -6,7 +6,7 @@
  * `failed`. `stebo` is the convenience orchestrator expand → drive → finalize (SPEC §2.5).
  */
 
-import { start, run } from '../run/run.js';
+import { start, run, safeSet } from '../run/run.js';
 import { STATE_VERSION } from '../util/versions.js';
 import { expand } from '../macros/expand.js';
 import { finalize } from '../macros/finalize.js';
@@ -156,7 +156,11 @@ async function resolvePending(pending, cfg, stopOn) {
     auditEvent(cfg, need, outcome.kind);
 
     if (outcome.kind === ProviderOutcome.RESOLVED) {
-      satisfied[need.id] = /** @type {import('../runtime/values.js').Value} */ (outcome.value);
+      safeSet(
+        satisfied,
+        need.id,
+        /** @type {import('../runtime/values.js').Value} */ (outcome.value)
+      );
     } else if (outcome.kind === ProviderOutcome.UNRESOLVED) {
       // leave in pending
     } else if (outcome.kind === ProviderOutcome.PROVIDER_ERROR) {

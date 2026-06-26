@@ -73,8 +73,15 @@ export function sanitizeJson(input, limits = VALUE_LIMITS) {
     /** @type {Record<string, unknown>} */
     const out = {};
     for (const key of Object.keys(obj)) {
-      if (key === '__proto__') continue; // drop to prevent prototype pollution
-      out[key] = clone(/** @type {Record<string, unknown>} */ (obj)[key], depth + 1);
+      // Drop `__proto__` (the only key whose assignment hits the prototype setter); other
+      // keys are created with `defineProperty` so no inherited setter can ever run.
+      if (key === '__proto__') continue;
+      Object.defineProperty(out, key, {
+        value: clone(/** @type {Record<string, unknown>} */ (obj)[key], depth + 1),
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
     }
     seen.delete(obj);
     return out;

@@ -27,6 +27,7 @@
 import { TokenType } from '../lexer/tokens.js';
 import { AST_VERSION } from '../util/versions.js';
 import { SeeboError, DiagnosticCode } from '../util/errors.js';
+import { DEFAULT_LIMITS } from '../util/limits.js';
 
 /**
  * Infix operator precedence table (IMPL §3; must match SPEC §1.4).
@@ -63,6 +64,7 @@ const LAYOUT_MACROS = new Set(['COLLAPSE', 'REMOVE_LINE', 'REMOVE_LEFT', 'REMOVE
  * @property {Iterable<string>} [capabilities] Registered capability names (enables sugar).
  * @property {Iterable<string>} [libraries] Registered library names (enables Namespace).
  * @property {Record<string, 'aggregator'|'layout'>} [macros] Custom macro → family map.
+ * @property {Record<string, number>} [limits] Resource limits (`maxNodes`, `maxNestingDepth`).
  */
 
 /**
@@ -84,6 +86,7 @@ export function parse(tokens, options) {
 
   while (!ctx.atEnd()) {
     const tok = ctx.peek();
+    ctx.countNode(); // one document node (IMPL §13)
     if (tok.kind === TokenType.TEXT) {
       ctx.next();
       nodes.push({
@@ -165,39 +168,46 @@ function macroFamily(name, custom) {
  * @returns {import('../ast/nodes.js').Expr}
  */
 function parseExpr(ctx, minBinding) {
-  let left = parseUnary(ctx);
+  ctx.enter(); // nesting guard (IMPL §13)
+  try {
+    let left = parseUnary(ctx);
 
-  for (;;) {
-    const tok = ctx.peek();
-    if (!tok || tok.kind !== TokenType.OPERATOR) break;
-    const op = ctx.text(tok);
+    for (;;) {
+      const tok = ctx.peek();
+      if (!tok || tok.kind !== TokenType.OPERATOR) break;
+      const op = ctx.text(tok);
 
-    // Ternary: cond ? then : else  (right-associative, SPEC §1.4 level 10)
-    if (op === '?') {
-      if (TERNARY_BINDING < minBinding) break;
+      // Ternary: cond ? then : else  (right-associative, SPEC §1.4 level 10)
+      if (op === '?') {
+        if (TERNARY_BINDING < minBinding) break;
+        ctx.next();
+        const thenExpr = parseExpr(ctx, 0);
+        ctx.expectPunct(TokenType.OPERATOR, ':', "expected ':' in ternary");
+        const elseExpr = parseExpr(ctx, TERNARY_BINDING);
+        ctx.countNode();
+        left = {
+          kind: 'Ternary',
+          position: span(left, elseExpr),
+          cond: left,
+          then: thenExpr,
+          else: elseExpr,
+        };
+        continue;
+      }
+
+      const prec = PRECEDENCE[op];
+      if (!prec) break;
+      if (prec.binding < minBinding) break;
       ctx.next();
-      const thenExpr = parseExpr(ctx, 0);
-      ctx.expectPunct(TokenType.OPERATOR, ':', "expected ':' in ternary");
-      const elseExpr = parseExpr(ctx, TERNARY_BINDING);
-      left = {
-        kind: 'Ternary',
-        position: span(left, elseExpr),
-        cond: left,
-        then: thenExpr,
-        else: elseExpr,
-      };
-      continue;
+      const right = parseExpr(ctx, prec.assoc === 'left' ? prec.binding + 1 : prec.binding);
+      ctx.countNode();
+      left = { kind: 'Binary', position: span(left, right), op, left, right };
     }
 
-    const prec = PRECEDENCE[op];
-    if (!prec) break;
-    if (prec.binding < minBinding) break;
-    ctx.next();
-    const right = parseExpr(ctx, prec.assoc === 'left' ? prec.binding + 1 : prec.binding);
-    left = { kind: 'Binary', position: span(left, right), op, left, right };
+    return left;
+  } finally {
+    ctx.exit();
   }
-
-  return left;
 }
 
 /** @param {Context} ctx @returns {import('../ast/nodes.js').Expr} */
@@ -207,8 +217,14 @@ function parseUnary(ctx) {
     const op = ctx.text(tok);
     if (op === '-' || op === 'not') {
       ctx.next();
-      const arg = parseUnary(ctx);
-      return { kind: 'Unary', position: span(tok, arg), op, arg };
+      ctx.enter(); // guard chained unary recursion (`not not …`)
+      try {
+        const arg = parseUnary(ctx);
+        ctx.countNode();
+        return { kind: 'Unary', position: span(tok, arg), op, arg };
+      } finally {
+        ctx.exit();
+      }
     }
   }
   return parsePostfix(ctx);
@@ -264,6 +280,7 @@ function parseAtom(ctx) {
   const tok = ctx.peek();
   if (!tok) throw ctx.error('unexpected end of expression', ctx.last());
 
+  ctx.countNode(); // one primary node (IMPL §13)
   switch (tok.kind) {
     case TokenType.NUMBER: {
       ctx.next();
@@ -542,6 +559,12 @@ function createContext(tokens, options) {
   const capabilities = new Set(options.capabilities ?? []);
   const libraries = new Set(options.libraries ?? []);
   const macros = options.macros ?? {};
+  const limits = options.limits ?? {};
+  const maxNodes = limits.maxNodes ?? DEFAULT_LIMITS.maxNodes;
+  const maxNestingDepth = limits.maxNestingDepth ?? DEFAULT_LIMITS.maxNestingDepth;
+
+  let nodeCount = 0;
+  let depth = 0;
 
   const IDENTIFIER_KINDS = new Set([TokenType.NAME, TokenType.METHOD]);
 
@@ -551,6 +574,26 @@ function createContext(tokens, options) {
     capabilities,
     libraries,
     macros,
+    /** Counts one AST node toward `maxNodes` (IMPL §13). @throws {SeeboError} */
+    countNode() {
+      if (++nodeCount > maxNodes) {
+        throw new SeeboError(`template exceeds maxNodes (${maxNodes})`, {
+          code: DiagnosticCode.NODE_LIMIT_EXCEEDED,
+        });
+      }
+    },
+    /** Enters one nesting level, guarding `maxNestingDepth` (stack-overflow guard, IMPL §13). @throws {SeeboError} */
+    enter() {
+      if (++depth > maxNestingDepth) {
+        throw new SeeboError(`expression nesting exceeds maxNestingDepth (${maxNestingDepth})`, {
+          code: DiagnosticCode.NESTING_LIMIT_EXCEEDED,
+        });
+      }
+    },
+    /** Leaves one nesting level. */
+    exit() {
+      depth--;
+    },
     atEnd: () => pos >= tokens.length,
     peek: (offset = 0) => tokens[pos + offset],
     next: () => tokens[pos++],

@@ -6,26 +6,47 @@
 
 import { tokenize } from '../lexer/lexer.js';
 import { parse as parseTokens, PRECEDENCE } from './parser.js';
+import { DEFAULT_LIMITS } from '../util/limits.js';
+import { SeeboError, DiagnosticCode } from '../util/errors.js';
 
 export { PRECEDENCE };
 
 /**
  * Parses a template string into the AST (SPEC §2.3). Throws a `SYNTAX_ERROR` with a
- * position on malformed input. Capability sugar and library namespaces are resolved when
- * the engine config provides the registered names (IMPL §3).
+ * position on malformed input. As the gateway to all execution, it also enforces the
+ * resource limits (IMPL §13): input length and token count here, AST node count and
+ * nesting depth inside the token parser. Capability sugar and library namespaces are
+ * resolved when the engine config provides the registered names (IMPL §3).
  *
  * @param {string} template
  * @param {import('../index.js').EngineConfig} [config]
  * @returns {import('../ast/nodes.js').Document}
+ * @throws {import('../util/errors.js').SeeboError}  On malformed input or an exceeded limit.
  */
 export function parse(template, config) {
+  const limits = config?.limits ?? {};
+  const maxInputBytes = limits.maxInputBytes ?? DEFAULT_LIMITS.maxInputBytes;
+  if (template.length > maxInputBytes) {
+    throw new SeeboError(`template exceeds maxInputBytes (${maxInputBytes})`, {
+      code: DiagnosticCode.INPUT_LIMIT_EXCEEDED,
+    });
+  }
+
   const tokens = tokenize(template, config);
+  const maxTokens = limits.maxTokens ?? DEFAULT_LIMITS.maxTokens;
+  if (tokens.length > maxTokens) {
+    throw new SeeboError(`template exceeds maxTokens (${maxTokens})`, {
+      code: DiagnosticCode.TOKEN_LIMIT_EXCEEDED,
+    });
+  }
+
   return parseTokens(tokens, {
     source: template,
     delimiters: config?.delimiters,
     capabilities: config?.capabilities ? Object.keys(config.capabilities) : [],
     libraries: libraryNames(config),
     macros: macroFamilies(config),
+    limits,
   });
 }
 

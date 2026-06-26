@@ -34,6 +34,7 @@ import {
 } from '../runtime/values.js';
 import { toText } from '../runtime/stringify.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
+import { DEFAULT_LIMITS } from '../util/limits.js';
 import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
 import { collectDeclarations, extractRequirement } from './symbols.js';
@@ -92,6 +93,8 @@ const TYPE_NAMES = new Set([
  * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
  * @property {import('../index.js').EngineConfig} [config]
  * @property {() => Date} clock
+ * @property {number} [steps]  Evaluator step counter for the current pass (IMPL §13).
+ * @property {number} [maxSteps]  Step budget for the pass; when set, exceeding it yields `STEP_LIMIT_EXCEEDED`.
  */
 
 /* ----------------------------------------------------------------------------------- *
@@ -113,6 +116,8 @@ export function evaluateDocument(ast, resolved, config) {
     needs: new Map(),
     config,
     clock: config?.clock ?? (() => new Date()),
+    steps: 0,
+    maxSteps: config?.limits?.maxSteps ?? DEFAULT_LIMITS.maxSteps,
   };
 
   let output = '';
@@ -206,6 +211,17 @@ export function createEvaluator(ast, options = {}, driver) {
  * @returns {EvalResult}
  */
 export function evaluate(expr, ctx) {
+  // Step budget (IMPL §13): bounds work per pass against pathological expressions.
+  if (ctx.maxSteps !== undefined && (ctx.steps = (ctx.steps ?? 0) + 1) > ctx.maxSteps) {
+    return err(
+      DiagnosticCode.STEP_LIMIT_EXCEEDED,
+      expr,
+      `evaluation exceeded maxSteps (${ctx.maxSteps})`,
+      {
+        limit: ctx.maxSteps,
+      }
+    );
+  }
   const e = /** @type {any} */ (expr);
   switch (e.kind) {
     case 'Lit':
@@ -507,6 +523,8 @@ function evalMember(e, ctx) {
 
 /** @param {import('../ast/nodes.js').ObjectLitNode} e @param {EvalContext} ctx */
 function evalObjectLit(e, ctx) {
+  // `__proto__` keys are skipped (see below) and makeObject re-sanitizes, so a plain
+  // accumulator is safe and keeps object values as ordinary POJOs.
   /** @type {Record<string, unknown>} */
   const out = {};
   /** @type {EvalResult|null} */

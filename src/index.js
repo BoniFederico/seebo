@@ -16,7 +16,10 @@ import { expand as _expand, finalize as _finalize } from './macros/index.js';
 import { drive as _drive, stebo as _stebo } from './driver/index.js';
 import { createRegistry } from './runtime/registry.js';
 import { EngineConfigError } from './util/errors.js';
+import { DEFAULT_LIMITS } from './util/limits.js';
 import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util/versions.js';
+
+export { DEFAULT_LIMITS };
 
 export { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION };
 export { DiagnosticCode, createDiagnostic, SeeboError, EngineConfigError } from './util/errors.js';
@@ -79,17 +82,6 @@ export const DEFAULT_DELIMITERS = Object.freeze({
   macro: '@',
   open: '{',
   close: '}',
-});
-
-/**
- * Default limits (SPEC §2.2).
- * @type {Readonly<Record<string, number>>}
- */
-export const DEFAULT_LIMITS = Object.freeze({
-  maxDepth: 20,
-  maxPhases: 10,
-  maxOutputBytes: 1_000_000,
-  timeoutMs: 2000,
 });
 
 /**
