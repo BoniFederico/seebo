@@ -288,9 +288,14 @@ export function validate(template, config) {
     if (n < min || n > max) {
       const want = min === max ? `${min}` : `${min}..${max}`;
       diagnostics.push(
-        diag(DiagnosticCode.ARITY_MISMATCH, node, `'${name}' expects ${want} argument(s), got ${n}`, {
-          name,
-        })
+        diag(
+          DiagnosticCode.ARITY_MISMATCH,
+          node,
+          `'${name}' expects ${want} argument(s), got ${n}`,
+          {
+            name,
+          }
+        )
       );
     }
   }

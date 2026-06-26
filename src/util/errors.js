@@ -1,6 +1,6 @@
 /**
- * @file Seebo error policy: error classes, normative diagnostic codes and `Diagnostic`
- * constructors. Skeleton only in v1 (no language logic).
+ * @file Seebo error policy: error classes, the normative diagnostic codes and the
+ * `Diagnostic` constructor.
  *
  * Two distinct channels, per SPEC §2.1 / IMPL Appendix A:
  *  - **Diagnostic** (structured, accumulable data): the normal result of tokenize /
@@ -140,18 +140,5 @@ export class EngineConfigError extends SeeboError {
     this.name = 'EngineConfigError';
     /** @type {Record<string, unknown>|undefined} */
     this.data = opts.data;
-  }
-}
-
-/**
- * Marker for functionality not implemented yet. Used by the v1 scaffolding placeholders;
- * it will disappear as the modules are completed.
- * @extends {SeeboError}
- */
-export class NotImplementedError extends SeeboError {
-  /** @param {string} what Human-readable name of the missing functionality. */
-  constructor(what) {
-    super(`Not implemented yet: ${what}`, { code: 'NOT_IMPLEMENTED' });
-    this.name = 'NotImplementedError';
   }
 }

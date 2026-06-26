@@ -2,9 +2,7 @@
  * @file Test harness: utilities to build engines and run the Seebo pipeline.
  *
  * Two engines are offered:
- *  - {@link realEngine}: the actual `createEngine` from src. In v1 its methods are
- *    placeholders that throw `NotImplementedError`, so conformance cases that use it are
- *    marked `{ todo: true }` until the language is implemented.
+ *  - {@link realEngine}: the actual `createEngine` from src, used by the conformance suite.
  *  - {@link createFakeEngine}: a tiny DETERMINISTIC fake pipeline that returns known
  *    output. It is NOT the Seebo engine and does not implement Seebo semantics — it only
  *    powers the minimal end-to-end smoke so the harness is provably working.

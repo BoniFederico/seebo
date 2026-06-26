@@ -1,8 +1,7 @@
 /**
  * @file Conformance — validity and errors (SPEC §1.10, IMPL Appendix A/B). Static checks
  * are reported by `validate` as structured diagnostics (codes are the public contract).
- * Real-engine cases are `PENDING` until implemented; codes/expectations are asserted via
- * the harness helpers.
+ * Codes/expectations are asserted via the harness helpers.
  */
 
 import { test } from 'node:test';

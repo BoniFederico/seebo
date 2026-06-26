@@ -39,20 +39,13 @@ import { DEFAULT_LIMITS } from '../util/limits.js';
 import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
 import { collectDeclarations, extractRequirement } from './symbols.js';
+import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
 
 /** Evaluation outcome tags (SPEC §1.6, IMPL §5). @type {Readonly<Record<string,string>>} */
 export const ResultKind = Object.freeze({ OK: 'Ok', SUSP: 'Susp', ERR: 'Err' });
 
-const TYPE_NAMES = new Set([
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-]);
+/** Builtin type names usable as producers (SPEC §1.3/§1.5). */
+const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
 
 /**
  * @typedef {Object} Ok @property {'Ok'} kind @property {import('../runtime/values.js').Value} value
@@ -467,13 +460,20 @@ function evalCall(e, ctx) {
     }
     const args = evalList(e.args, ctx);
     if (args.blocking) return args.blocking;
-    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values), registryOf(ctx)), e);
+    return tryApply(
+      () => construct(e.callee, /** @type {any} */ (args.values), registryOf(ctx)),
+      e
+    );
   }
   // Custom type constructor registered via defineType (SPEC §2.6), consulted before producers.
   const typeDef = registryOf(ctx)?.getType?.(e.callee);
   if (typeDef) {
     if (e.args.length === 0) {
-      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.callee}()' is a type builder, not a value`);
+      return err(
+        DiagnosticCode.TYPE_ERROR_RUNTIME,
+        e,
+        `'${e.callee}()' is a type builder, not a value`
+      );
     }
     const args = evalList(e.args, ctx);
     if (args.blocking) return args.blocking;

@@ -1,10 +1,9 @@
 /**
- * @file Seebo public API (SPEC Part 2). Single package entry point:
- * `createEngine`, `builtins`, the `define*` functions and the version constants.
+ * @file Seebo public API (SPEC Part 2). Single package entry point: `createEngine`,
+ * `builtins`, the `define*` functions and the version constants.
  *
- * v1 (clarifications §3): pure, synchronous core; async only in `drive`/`stebo`; all
- * optimizations off; no streaming exposed. The engine methods are placeholders until
- * the individual modules are implemented.
+ * v1 (clarifications §3): pure, synchronous core; async confined to `drive`/`stebo`; all
+ * optimizations off by default; no streaming exposed.
  */
 
 import { tokenize as _tokenize } from './lexer/index.js';
@@ -18,6 +17,12 @@ import { createRegistry } from './runtime/registry.js';
 import { EngineConfigError } from './util/errors.js';
 import { DEFAULT_LIMITS } from './util/limits.js';
 import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util/versions.js';
+import {
+  RESERVED_WORDS,
+  BUILTIN_TYPE_NAMES,
+  BUILTIN_PRODUCER_NAMES,
+  BUILTIN_MACRO_NAMES,
+} from './util/vocabulary.js';
 
 export { DEFAULT_LIMITS };
 
@@ -35,42 +40,11 @@ export { MacroFamily, BUILTIN_MACROS } from './macros/index.js';
 export { ProviderOutcome } from './driver/async_driver.js';
 
 /**
- * Language reserved words (SPEC §1.5). An identifier introduced by the application
- * cannot match any of these.
+ * Language reserved words (SPEC §1.5). An identifier introduced by the application cannot
+ * match any of these. Re-exported from the canonical {@link ./util/vocabulary.js}.
  * @type {ReadonlyArray<string>}
  */
-export const RESERVED_WORDS = Object.freeze([
-  // operators and forms
-  'and',
-  'or',
-  'not',
-  'in',
-  'match',
-  // literals
-  'true',
-  'false',
-  // builtin types (also act as producers)
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-  // builtin producers
-  'now',
-  'date',
-  'require',
-  'var',
-  // builtin macros
-  'ABSORB',
-  'MERGE',
-  'COLLAPSE',
-  'REMOVE_LINE',
-  'REMOVE_LEFT',
-  'REMOVE_RIGHT',
-]);
+export { RESERVED_WORDS };
 
 /**
  * Default delimiters (SPEC §1.2 / §2.2).
@@ -250,7 +224,7 @@ export function normalizeConfig(config = {}) {
 
 /**
  * Builds a configured engine (SPEC §2.2). Returns an object with the public API methods,
- * already "aware" of the config. The methods delegate to the modules (placeholders in v1).
+ * already "aware" of the config; each method delegates to its module with the config bound.
  *
  * @param {EngineConfig} [config]
  * @returns {Engine}
@@ -280,49 +254,24 @@ export function createEngine(config = {}) {
 }
 
 /**
- * The standard vocabulary the core implements directly (SPEC §1.3/§1.5/§1.8): base types,
- * standard producers, and layout/aggregator macros. These names are always available — the
- * engine has them built in — and are exposed here as **names** so an application can spread
- * `...builtins.all` into `createEngine` to be explicit about the language surface (SPEC §2.2).
- * Spreading them is a no-op for the engine (they are reserved/handled regardless), and the
- * registry safely ignores plain-string entries; custom `define*` descriptors are added on top.
- */
-const BUILTIN_TYPE_NAMES = Object.freeze([
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-]);
-/** Standard producers the core implements (the type builders above are also producers). */
-const BUILTIN_FUNCTION_NAMES = Object.freeze(['now', 'date']);
-/** Builtin macro names (SPEC §1.8): aggregators (pre-pass) and layout (post-pass). */
-const BUILTIN_MACRO_NAMES = Object.freeze([
-  'ABSORB',
-  'MERGE',
-  'COLLAPSE',
-  'REMOVE_LINE',
-  'REMOVE_LEFT',
-  'REMOVE_RIGHT',
-]);
-
-/**
- * Builtin vocabulary ready to spread into `createEngine` (SPEC §2.2). The sets list the
- * standard names the core provides; `all` bundles the three for `...builtins.all`.
+ * Builtin vocabulary ready to spread into `createEngine` (SPEC §2.2): the standard names the
+ * core implements directly (base types, standard producers, macros). These are always
+ * available — the engine has them built in — and are exposed here as **names** so an
+ * application can spread `...builtins.all` to be explicit about the language surface.
+ * Spreading them is a no-op (they are reserved/handled regardless; the registry ignores plain
+ * string entries); custom `define*` descriptors are added on top. Sourced from the canonical
+ * {@link ./util/vocabulary.js}.
  *
  * @type {{ types: string[], functions: string[], macros: string[], all: { types: string[], functions: string[], macros: string[] } }}
  */
 export const builtins = Object.freeze({
-  types: /** @type {string[]} */ ([...BUILTIN_TYPE_NAMES]),
-  functions: /** @type {string[]} */ ([...BUILTIN_FUNCTION_NAMES]),
-  macros: /** @type {string[]} */ ([...BUILTIN_MACRO_NAMES]),
+  types: [...BUILTIN_TYPE_NAMES],
+  functions: [...BUILTIN_PRODUCER_NAMES],
+  macros: [...BUILTIN_MACRO_NAMES],
   all: {
-    types: /** @type {string[]} */ ([...BUILTIN_TYPE_NAMES]),
-    functions: /** @type {string[]} */ ([...BUILTIN_FUNCTION_NAMES]),
-    macros: /** @type {string[]} */ ([...BUILTIN_MACRO_NAMES]),
+    types: [...BUILTIN_TYPE_NAMES],
+    functions: [...BUILTIN_PRODUCER_NAMES],
+    macros: [...BUILTIN_MACRO_NAMES],
   },
 });
 

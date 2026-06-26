@@ -1,6 +1,6 @@
 /**
  * @file Conformance — IMPL Appendix B (normative borderline cases). An implementation is
- * conformant if it reproduces these. Real-engine cases are `PENDING` until implemented.
+ * conformant if it reproduces these.
  *
  * Coverage map (cases are grouped by topic across files):
  *  - B.1 nested-branch phases      → test/conformance/analyze.test.js

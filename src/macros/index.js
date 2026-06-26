@@ -3,6 +3,8 @@
  * contracts ({@link ./expand.js}, {@link ./finalize.js}).
  */
 
+import { BUILTIN_MACRO_NAMES } from '../util/vocabulary.js';
+
 export { expand } from './expand.js';
 export { finalize } from './finalize.js';
 
@@ -16,14 +18,8 @@ export const MacroFamily = Object.freeze({
 });
 
 /**
- * Builtin macros (SPEC §1.5, reserved words). Aggregators first, then layout.
+ * Builtin macros (SPEC §1.5, reserved words). Aggregators first, then layout. Re-exported
+ * from the canonical {@link ../util/vocabulary.js}.
  * @type {ReadonlyArray<string>}
  */
-export const BUILTIN_MACROS = Object.freeze([
-  'ABSORB',
-  'MERGE',
-  'COLLAPSE',
-  'REMOVE_LINE',
-  'REMOVE_LEFT',
-  'REMOVE_RIGHT',
-]);
+export const BUILTIN_MACROS = BUILTIN_MACRO_NAMES;

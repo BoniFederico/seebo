@@ -22,11 +22,12 @@
  */
 
 import { SeeboError } from '../util/errors.js';
+import { LAYOUT_MACRO_NAMES } from '../util/vocabulary.js';
 
 const DEFAULT_DELIMITERS = { macro: '@', open: '{', close: '}' };
 
 /** Builtin layout macro names recognized by FINALIZE (SPEC §1.8). */
-const LAYOUT_MACROS = new Set(['REMOVE_LINE', 'COLLAPSE', 'REMOVE_LEFT', 'REMOVE_RIGHT']);
+const LAYOUT_MACROS = new Set(LAYOUT_MACRO_NAMES);
 
 /** Hard cap on marker applications, defensive against pathological inputs. */
 const MAX_MARKER_PASSES = 100_000;
@@ -50,7 +51,8 @@ export function finalize(resolvedText, config) {
       ? def
       : undefined;
   };
-  const isRecognized = (/** @type {string} */ name) => LAYOUT_MACROS.has(name) || !!customMacro(name);
+  const isRecognized = (/** @type {string} */ name) =>
+    LAYOUT_MACROS.has(name) || !!customMacro(name);
 
   let text = resolvedText;
   let collapseSeen = false;

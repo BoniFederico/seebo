@@ -6,6 +6,7 @@
  * Usage:
  *   npm run bench                 # timings only
  *   node --expose-gc bench/index.js   # timings + allocation estimate
+ *   node bench/index.js --smoke   # tiny, fast run (CI smoke: verifies the bench still runs)
  *
  * This is a development script: `console` output here is intentional (not part of the core).
  */
@@ -18,6 +19,11 @@ import { buildCases } from './cases.js';
 
 const gc = /** @type {undefined | (() => void)} */ (/** @type {any} */ (globalThis).gc);
 
+/** Smoke mode (`--smoke`): tiny inputs and iteration counts so CI can verify the bench runs. */
+const SMOKE = process.argv.includes('--smoke');
+/** Default iteration count per case (kept small in smoke mode). */
+const ITERATIONS = SMOKE ? 5 : 200;
+
 /**
  * Runs `fn` repeatedly and reports time/op and (if `--expose-gc`) heap/op. Awaits the result
  * each iteration so async operations are measured correctly. Warms up first so the JIT has
@@ -29,7 +35,7 @@ const gc = /** @type {undefined | (() => void)} */ (/** @type {any} */ (globalTh
  * @returns {Promise<void>}
  */
 async function bench(name, fn, opts = {}) {
-  const iterations = opts.iterations ?? 200;
+  const iterations = opts.iterations ?? ITERATIONS;
   const warmup = opts.warmup ?? Math.min(50, iterations);
 
   for (let i = 0; i < warmup; i++) await fn();
@@ -52,7 +58,7 @@ async function bench(name, fn, opts = {}) {
 }
 
 async function main() {
-  const c = buildCases();
+  const c = buildCases(SMOKE ? 4 : undefined);
   const caps = { user: () => undefined };
   const engine = createEngine({ capabilities: caps });
   const cached = createEngine({ capabilities: caps, optimizations: { astCache: true } });
@@ -80,8 +86,9 @@ async function main() {
   await bench('analyze() +astCache', () => cached.analyze(c.parseTemplate));
 
   const macroArgs = { template: c.macroTemplate, templates: c.templates, values: c.values };
-  await bench('macro stebo()', () => engine.stebo(macroArgs), { iterations: 100 });
-  await bench('macro stebo() +astCache', () => cached.stebo(macroArgs), { iterations: 100 });
+  const macroIter = SMOKE ? 5 : 100;
+  await bench('macro stebo()', () => engine.stebo(macroArgs), { iterations: macroIter });
+  await bench('macro stebo() +astCache', () => cached.stebo(macroArgs), { iterations: macroIter });
 
   console.log('');
 }

@@ -1,8 +1,7 @@
 /**
  * @file Conformance — static analysis: `analyze` as a compiler (SPEC §2.3, IMPL §9).
  * Verifies requirements, requirement graph, execution plan, capabilities and metrics
- * are computed statically (no data, no capability queried). Real-engine cases are
- * `PENDING` until implemented.
+ * are computed statically (no data, no capability queried).
  */
 
 import { test } from 'node:test';
