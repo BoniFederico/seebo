@@ -67,8 +67,19 @@ const BACKWARD_MACROS = new Set(['COLLAPSE', 'REMOVE_LINE', 'REMOVE_LEFT']);
 const AGGREGATOR_MACROS = new Set(['ABSORB', 'MERGE']);
 
 /**
+ * In-memory analysis cache (IMPL §11). Opt-in via `optimizations.astCache`, keyed by config
+ * identity then template. `Analysis` is a pure function of `(config, template)`.
+ * @type {WeakMap<object, Map<string, Analysis>>}
+ */
+const ANALYSIS_CACHE = new WeakMap();
+
+/** Upper bound on cached analyses per engine; cleared wholesale when exceeded. */
+const MAX_CACHE_ENTRIES = 512;
+
+/**
  * Statically describes what is needed to complete the document, without executing it
- * (SPEC §2.3, IMPL §9). Pure: no data is fetched and no capability is queried.
+ * (SPEC §2.3, IMPL §9). Pure: no data is fetched and no capability is queried. With
+ * `optimizations.astCache` the result is memoized per `(config, template)` (IMPL §11).
  *
  * @param {string} template  Raw template source.
  * @param {import('../index.js').EngineConfig} [config]
@@ -76,6 +87,36 @@ const AGGREGATOR_MACROS = new Set(['ABSORB', 'MERGE']);
  * @throws {import('../util/errors.js').SeeboError}  On unrecoverable syntax errors (via `parse`).
  */
 export function analyze(template, config) {
+  const bucket = cacheBucket(config);
+  if (bucket) {
+    const hit = bucket.get(template);
+    if (hit) return hit;
+    const a = analyzeUncached(template, config);
+    if (bucket.size >= MAX_CACHE_ENTRIES) bucket.clear();
+    bucket.set(template, a);
+    return a;
+  }
+  return analyzeUncached(template, config);
+}
+
+/** Returns the per-config analysis cache bucket when `astCache` is enabled. @param {import('../index.js').EngineConfig} [config] */
+function cacheBucket(config) {
+  if (!config || !config.optimizations?.astCache) return undefined;
+  let bucket = ANALYSIS_CACHE.get(config);
+  if (!bucket) {
+    bucket = new Map();
+    ANALYSIS_CACHE.set(config, bucket);
+  }
+  return bucket;
+}
+
+/**
+ * The actual analysis work (uncached).
+ * @param {string} template
+ * @param {import('../index.js').EngineConfig} [config]
+ * @returns {Analysis}
+ */
+function analyzeUncached(template, config) {
   const cfg = config ?? {};
   const ast = parse(template, cfg);
   const symbols = collectDeclarations(ast);

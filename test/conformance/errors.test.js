@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realEngine, assertHasCode, assertCodes, PENDING } from '../helpers/index.js';
+import { realEngine, assertHasCode, assertCodes } from '../helpers/index.js';
 import { DiagnosticCode } from '../../src/util/errors.js';
 
 // SPEC §1.7/§1.10 — referencing an undeclared identifier is a static error.

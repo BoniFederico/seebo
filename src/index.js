@@ -85,7 +85,9 @@ export const DEFAULT_DELIMITERS = Object.freeze({
 });
 
 /**
- * Optimizations: all off in v1 (clarifications §3). They remain accepted in the config.
+ * Optimizations: all **off by default** (clarifications §3). `astCache` is implemented as a
+ * transparent in-memory parse/analysis cache (IMPL §11/§12.1) when enabled; `lazyParse`,
+ * `stream` and `objectPool` are accepted but inert in v1. See `docs/PERFORMANCE.md`.
  * @type {Readonly<Record<string, boolean>>}
  */
 export const DEFAULT_OPTIMIZATIONS = Object.freeze({
