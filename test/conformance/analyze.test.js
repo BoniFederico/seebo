@@ -9,25 +9,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { realEngine, PENDING } from '../helpers/index.js';
 
-// SPEC §2.3 — the documented analyze example: paese (phase 1) gates citta (phase 2).
+// SPEC §2.3 — the documented analyze example: country (phase 1) gates city (phase 2).
 //
 // Input template:
-//   ${ require({ id:'paese', capability:'user', label:'Paese',
+//   ${ require({ id:'country', capability:'user', label:'Country',
 //                type: array().constraints({ values:['IT','US'] }) }) }
-//   ${ paese == 'IT'
-//        ? require({ id:'citta', capability:'user', label:'Città', type: string() })
+//   ${ country == 'IT'
+//        ? require({ id:'city', capability:'user', label:'City', type: string() })
 //        : '' }
 //
 // Expected (SPEC §2.3):
-//   requirements: paese {options:['IT','US'], phase:1}, citta {phase:2}
-//   requirementGraph.edges: [['paese','citta']]
-//   executionPlan: [{phase:1,['paese']},{phase:2,['citta']}]
+//   requirements: country {options:['IT','US'], phase:1}, city {phase:2}
+//   requirementGraph.edges: [['country','city']]
+//   executionPlan: [{phase:1,['country']},{phase:2,['city']}]
 //   capabilitiesUsed: ['user']; deterministic: true; maxPhases: 2; worstCaseRequirements: 2
 test('SPEC §2.3 — analyze computes phases, graph and plan', PENDING, () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = [
-    "${ require({ id:'paese', capability:'user', label:'Paese', type: array().constraints({ values:['IT','US'] }) }) }",
-    "${ paese == 'IT' ? require({ id:'citta', capability:'user', label:'Città', type: string() }) : '' }",
+    "${ require({ id:'country', capability:'user', label:'Country', type: array().constraints({ values:['IT','US'] }) }) }",
+    "${ country == 'IT' ? require({ id:'city', capability:'user', label:'City', type: string() }) : '' }",
   ].join('\n');
 
   const a = engine.analyze(template);
@@ -35,17 +35,17 @@ test('SPEC §2.3 — analyze computes phases, graph and plan', PENDING, () => {
   assert.equal(a.analysisVersion, 1);
   assert.deepEqual(
     a.requirements.map((r) => r.id),
-    ['paese', 'citta']
+    ['country', 'city']
   );
-  const paese = a.requirements.find((r) => r.id === 'paese');
-  const citta = a.requirements.find((r) => r.id === 'citta');
-  assert.deepEqual(paese?.options, ['IT', 'US']);
-  assert.equal(paese?.phase, 1);
-  assert.equal(citta?.phase, 2);
-  assert.deepEqual(a.requirementGraph.edges, [['paese', 'citta']]);
+  const country = a.requirements.find((r) => r.id === 'country');
+  const city = a.requirements.find((r) => r.id === 'city');
+  assert.deepEqual(country?.options, ['IT', 'US']);
+  assert.equal(country?.phase, 1);
+  assert.equal(city?.phase, 2);
+  assert.deepEqual(a.requirementGraph.edges, [['country', 'city']]);
   assert.deepEqual(a.executionPlan, [
-    { phase: 1, requirements: ['paese'] },
-    { phase: 2, requirements: ['citta'] },
+    { phase: 1, requirements: ['country'] },
+    { phase: 2, requirements: ['city'] },
   ]);
   assert.deepEqual(a.capabilitiesUsed, ['user']);
   assert.equal(a.deterministic, true);

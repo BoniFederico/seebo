@@ -40,9 +40,9 @@ test('IMPL B.2 — need in non-taken branch is not emitted', PENDING, () => {
 // IMPL B.6 — adjacent layout macros and removal conflicts (post-pass finalize, §10.2).
 //   Input:
 //     riga1
-//     ${ vuoto }@{REMOVE_LINE}
+//     ${ empty }@{REMOVE_LINE}
 //     ${ x }@{REMOVE_RIGHT(2)}AB
-//   With vuoto = '' and x = 'V':
+//   With empty = '' and x = 'V':
 //     - the second line is removed entirely (REMOVE_LINE on the slot's line);
 //     - REMOVE_RIGHT(2) removes itself and the two chars to its right ('AB'),
 //       leaving just the value of x.
@@ -51,8 +51,8 @@ test('IMPL B.2 — need in non-taken branch is not emitted', PENDING, () => {
 //     V
 test('IMPL B.6 — layout macros: REMOVE_LINE and REMOVE_RIGHT', PENDING, async () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
-  const template = ['riga1', '${ vuoto }@{REMOVE_LINE}', '${ x }@{REMOVE_RIGHT(2)}AB'].join('\n');
-  const res = await engine.stebo({ template, values: { vuoto: '', x: 'V' } });
+  const template = ['riga1', '${ empty }@{REMOVE_LINE}', '${ x }@{REMOVE_RIGHT(2)}AB'].join('\n');
+  const res = await engine.stebo({ template, values: { empty: '', x: 'V' } });
   assert.equal(res.status, Status.COMPLETED);
   assert.equal(normalizeOutput(/** @type {string} */ (res.output)), normalizeOutput('riga1\nV'));
 });

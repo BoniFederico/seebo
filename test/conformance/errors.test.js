@@ -31,17 +31,17 @@ test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', PENDING, () 
 });
 
 // IMPL B.3 — a non-exhaustive match (no `*`, non-exhaustive cases) is a static error.
-//   Input: ${ n match { 1 => 'uno', 2 => 'due' } }   Expected: validate → [NON_EXHAUSTIVE_MATCH].
-//   With a `* => 'altro'` arm added: no diagnostics.
+//   Input: ${ n match { 1 => 'one', 2 => 'two' } }   Expected: validate → [NON_EXHAUSTIVE_MATCH].
+//   With a `* => 'other'` arm added: no diagnostics.
 test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', PENDING, () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const bad = engine.validate(
-    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'uno', 2 => 'due' } }"
+    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two' } }"
   );
   assertHasCode(bad, DiagnosticCode.NON_EXHAUSTIVE_MATCH);
 
   const good = engine.validate(
-    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'uno', 2 => 'due', * => 'altro' } }"
+    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two', * => 'other' } }"
   );
   assertCodes(good, []);
 });

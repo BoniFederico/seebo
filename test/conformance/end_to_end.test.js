@@ -53,12 +53,12 @@ test('[smoke] fake pipeline state shape is serializable', () => {
 
 test('SPEC §2.7 — order email end-to-end', PENDING, async () => {
   // Input: the §2.7 template using secrets/crm/user capabilities as producers.
-  // Values: { saluto: 'Gentile', note: '' }
+  // Values: { greetings: 'Dear', note: '' }
   // Expected output (SPEC §2.7):
-  //   Da: noreply@acme.io
-  //   Oggetto: Ordine 42 — 1234,50 €
-  //   Evaso 6 giorni fa.
-  //   Gentile cliente,
+  //   From: noreply@acme.io
+  //   Object: Order 42 — 1234,50 €
+  //   Fulfilled 6 days ago.
+  //   Dear customer,
   //   (the "Note" line is removed because note was empty)
   const engine = realEngine({
     locale: 'it-IT',
@@ -72,23 +72,23 @@ test('SPEC §2.7 — order email end-to-end', PENDING, async () => {
 
   const template = [
     "#{ Intestazione email d'ordine }",
-    "Da: ${ secrets({ id:'mittente', type:string() }) }",
-    "Oggetto: Ordine ${ crm({ id:'ordine', type:object() }).id } — ${ float(ordine.totale).constraints({precision:2}) } €",
+    "From: ${ secrets({ id:'mittente', type:string() }) }",
+    "Object: Order ${ crm({ id:'ordine', type:object() }).id } — ${ float(ordine.totale).constraints({precision:2}) } €",
     'Evaso ${ (now() - datetime(ordine.data)).totalDays().round() } giorni fa.',
-    "${ user({ id:'saluto', label:'Saluto', type: array().constraints({values:['Gentile','Ciao']}) }) } cliente,",
+    "${ user({ id:'greetings', label:'Saluto', type: array().constraints({values:['Dear','Ciao']}) }) } customer,",
     "${ user({ id:'note', label:'Note aggiuntive?', type: string(), optional:true }) != '' ? 'Note: ' + note : '@{REMOVE_LINE}' }",
   ].join('\n');
 
-  const res = await engine.stebo({ template, values: { saluto: 'Gentile', note: '' } });
+  const res = await engine.stebo({ template, values: { greetings: 'Dear', note: '' } });
   assert.equal(res.status, Status.COMPLETED);
   assert.equal(
     normalizeOutput(/** @type {string} */ (res.output)),
     normalizeOutput(
       [
-        'Da: noreply@acme.io',
-        'Oggetto: Ordine 42 — 1234,50 €',
-        'Evaso 6 giorni fa.',
-        'Gentile cliente,',
+        'From: noreply@acme.io',
+        'Object: Order 42 — 1234,50 €',
+        'Fulfilled 6 days ago.',
+        'Dear customer,',
       ].join('\n')
     )
   );

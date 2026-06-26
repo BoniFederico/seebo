@@ -14,8 +14,8 @@ const engine = realEngine();
 const kinds = (input) => engine.tokenize(input).map((t) => t.kind);
 
 // SPEC §2.3 — the documented example: name vs method is decided by the dot.
-test('SPEC §2.3 — tokenize("Ciao ${ nome.upper() }")', () => {
-  assert.deepEqual(kinds('Ciao ${ nome.upper() }'), [
+test('SPEC §2.3 — tokenize("Hello ${ name.upper() }")', () => {
+  assert.deepEqual(kinds('Hello ${ name.upper() }'), [
     'text',
     'slot-open',
     'name',
@@ -59,6 +59,6 @@ test('SPEC §1.2 — brace/quote balancing within a slot', () => {
 
 // SPEC §2.3 — tokenize is error-tolerant: malformed input never throws.
 test('SPEC §2.3 — tokenize tolerates incomplete input', () => {
-  assert.doesNotThrow(() => engine.tokenize('Ciao ${ nome.'));
-  assert.ok(engine.tokenize('Ciao ${ nome.').length > 0);
+  assert.doesNotThrow(() => engine.tokenize('Hello ${ name.'));
+  assert.ok(engine.tokenize('Hello ${ name.').length > 0);
 });

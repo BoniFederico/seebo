@@ -78,7 +78,7 @@ test('SPEC §1.4 — coalesce and the notion of empty', PENDING, async () => {
 });
 
 // SPEC §1.4 — match desugars to ternary chain; selects the first matching arm.
-// Input: 2 match { 1 => 'uno', 2 => 'due', * => 'altro' }   Expected: "due"
+// Input: 2 match { 1 => 'one', 2 => 'two', * => 'other' }   Expected: "two"
 test('SPEC §1.4 — match selects the matching arm', PENDING, async () => {
-  assert.equal(await renderExpr("2 match { 1 => 'uno', 2 => 'due', * => 'altro' }"), 'due');
+  assert.equal(await renderExpr("2 match { 1 => 'one', 2 => 'two', * => 'other' }"), 'two');
 });
