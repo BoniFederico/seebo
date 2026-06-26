@@ -16,6 +16,8 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:unit": "node --test \"test/unit/**/*.test.js\"",
+    "test:conformance": "node --test \"test/conformance/**/*.test.js\"",
     "test:watch": "node --test --watch",
     "lint": "prettier --check .",
     "format": "prettier --write .",

@@ -27,14 +27,7 @@ export const TypeName = Object.freeze({
  * authority: combining two datetimes keeps the higher rank (`max` over 0..5).
  * @type {ReadonlyArray<string>}
  */
-export const PRECISION_ORDER = Object.freeze([
-  'year',
-  'month',
-  'day',
-  'hour',
-  'minute',
-  'second',
-]);
+export const PRECISION_ORDER = Object.freeze(['year', 'month', 'day', 'hour', 'minute', 'second']);
 
 /**
  * One of the {@link PRECISION_ORDER} values.

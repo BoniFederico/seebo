@@ -26,12 +26,26 @@ npm install
 I test girano sul runner integrato di Node (`node:test`), senza dipendenze esterne.
 
 ```bash
-npm test            # esegue tutti i test in /test
-npm run test:watch  # modalità watch
+npm test              # tutti i test
+npm run test:unit         # solo unit test (componenti)
+npm run test:conformance  # solo conformance test (end-to-end, guidati da SPEC/IMPL)
+npm run test:watch        # modalità watch
 ```
 
-- `test/smoke.test.js` — verifica che i moduli espongano i simboli attesi (placeholder).
-- `test/conformance/` — fixture normative dell'Appendice B di `impl.md` (per ora `todo`).
+Struttura (separazione unit vs conformance):
+
+- `test/helpers/` — harness: `pipeline.js` (engine reale + una **pipeline finta**
+  deterministica per lo smoke end-to-end), `expect.js` (confronto diagnostics/output).
+- `test/unit/` — test per componente (lexer, parser, values, eval, API). I contratti
+  (enum/costanti) passano già; i comportamenti sono `PENDING` finché non implementati.
+- `test/conformance/` — casi end-to-end derivati da SPEC/IMPL (espressioni, analyze,
+  errori, esempio §2.7, Appendice B). Ogni test documenta in commento la sezione di
+  origine, l'input e l'output/errore atteso.
+
+I casi non ancora eseguibili usano l'opzione condivisa `PENDING` (`{ skip: ... }`): il
+corpo resta come **specifica eseguibile** ma non viene lanciato, così il report resta
+pulito. Lo smoke end-to-end (`test/conformance/end_to_end.test.js`) passa già usando la
+pipeline finta.
 
 ## Sviluppo
 

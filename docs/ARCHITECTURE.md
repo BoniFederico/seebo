@@ -45,20 +45,20 @@ testable, and lets the exact same code run on client and server.
 Each module is organized as **named contract file(s)** (the source of truth for shapes
 and signatures) plus an `index.js` **barrel** that re-exports them.
 
-| Module | Contract file(s) | Responsibility | Spec |
-|---|---|---|---|
-| `src/lexer/` | `tokens.js` | `Token`, `TokenType`, source `Position`; `tokenize` (error-tolerant) / `lex` | IMPL §2 |
-| `src/ast/` | `nodes.js` | `Document` and node/`Expr` shapes; node factories | IMPL §3.1 |
-| `src/parser/` | `index.js` | recursive descent + Pratt; `parse`; `PRECEDENCE` table | IMPL §3 |
-| `src/runtime/` | `values.js` | `Value` model, type/format/constraints shapes, builders | IMPL §4 |
-| `src/eval/` | `evaluator.js` | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor` | IMPL §5 |
-| `src/run/` | `run.js` | pure state machine: `PublicState`, `RuntimeState`, `start`/`run` | IMPL §6 |
-| `src/validate/` | `validate.js` | static diagnostics (undeclared names, arity, types, capabilities) | IMPL §8 |
-| `src/analyze/` | `analyze.js` | `Analysis`: requirement graph, plan, metrics, `streamability` | IMPL §9 |
-| `src/macros/` | `expand.js`, `finalize.js` | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass) | IMPL §10 |
-| `src/driver/` | `async_driver.js` | the only async layer; `ProviderOutcome`, `drive`, `stebo` | IMPL §7 |
-| `src/util/` | `errors.js`, `versions.js` | `Diagnostic`/`DiagnosticCode`, error classes, contract versions | IMPL App. A, §15 |
-| `src/index.js` | — | public API: `createEngine`, `builtins`, `define*`, config defaults | SPEC §2.2/§2.6 |
+| Module          | Contract file(s)           | Responsibility                                                               | Spec             |
+| --------------- | -------------------------- | ---------------------------------------------------------------------------- | ---------------- |
+| `src/lexer/`    | `tokens.js`                | `Token`, `TokenType`, source `Position`; `tokenize` (error-tolerant) / `lex` | IMPL §2          |
+| `src/ast/`      | `nodes.js`                 | `Document` and node/`Expr` shapes; node factories                            | IMPL §3.1        |
+| `src/parser/`   | `index.js`                 | recursive descent + Pratt; `parse`; `PRECEDENCE` table                       | IMPL §3          |
+| `src/runtime/`  | `values.js`                | `Value` model, type/format/constraints shapes, builders                      | IMPL §4          |
+| `src/eval/`     | `evaluator.js`             | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`           | IMPL §5          |
+| `src/run/`      | `run.js`                   | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`             | IMPL §6          |
+| `src/validate/` | `validate.js`              | static diagnostics (undeclared names, arity, types, capabilities)            | IMPL §8          |
+| `src/analyze/`  | `analyze.js`               | `Analysis`: requirement graph, plan, metrics, `streamability`                | IMPL §9          |
+| `src/macros/`   | `expand.js`, `finalize.js` | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass)                | IMPL §10         |
+| `src/driver/`   | `async_driver.js`          | the only async layer; `ProviderOutcome`, `drive`, `stebo`                    | IMPL §7          |
+| `src/util/`     | `errors.js`, `versions.js` | `Diagnostic`/`DiagnosticCode`, error classes, contract versions              | IMPL App. A, §15 |
+| `src/index.js`  | —                          | public API: `createEngine`, `builtins`, `define*`, config defaults           | SPEC §2.2/§2.6   |
 
 ## Public contracts and versioning (SPEC §2.1, IMPL §15)
 
