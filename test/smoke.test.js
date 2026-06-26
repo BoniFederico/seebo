@@ -1,22 +1,29 @@
 /**
- * @file Smoke test: verifies that the main modules export the expected symbols
- * (v1 placeholders). Does not exercise the language logic, which is still absent.
+ * @file Smoke test: verifies that the public API and the named contract files export the
+ * expected symbols (v1 placeholders). Does not exercise the language logic, still absent.
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import * as api from '../src/index.js';
+
+// Named contract files (source of truth)
+import * as tokens from '../src/lexer/tokens.js';
+import * as nodes from '../src/ast/nodes.js';
+import * as values from '../src/runtime/values.js';
+import * as evaluator from '../src/eval/evaluator.js';
+import * as runMachine from '../src/run/run.js';
+import * as validateMod from '../src/validate/validate.js';
+import * as analyzeMod from '../src/analyze/analyze.js';
+import * as expandMod from '../src/macros/expand.js';
+import * as finalizeMod from '../src/macros/finalize.js';
+import * as asyncDriver from '../src/driver/async_driver.js';
+
+// Module barrels
 import * as lexer from '../src/lexer/index.js';
 import * as parser from '../src/parser/index.js';
 import * as ast from '../src/ast/index.js';
-import * as runtime from '../src/runtime/index.js';
-import * as evalMod from '../src/eval/index.js';
-import * as runMod from '../src/run/index.js';
-import * as validateMod from '../src/validate/index.js';
-import * as analyzeMod from '../src/analyze/index.js';
-import * as macros from '../src/macros/index.js';
-import * as driver from '../src/driver/index.js';
 import * as errors from '../src/util/errors.js';
 import * as versions from '../src/util/versions.js';
 
@@ -32,6 +39,24 @@ test('public API exports the facades required by v1', () => {
     'RESERVED_WORDS',
   ]) {
     assert.ok(name in api, `missing export: ${name}`);
+  }
+});
+
+test('public API re-exports the contract enums', () => {
+  for (const name of [
+    'TokenType',
+    'NodeKind',
+    'ExprKind',
+    'TypeName',
+    'ResultKind',
+    'Status',
+    'Streamability',
+    'MacroFamily',
+    'BUILTIN_MACROS',
+    'ProviderOutcome',
+    'DiagnosticCode',
+  ]) {
+    assert.ok(name in api, `missing contract export: ${name}`);
   }
 });
 
@@ -71,20 +96,50 @@ test('no streaming facade exists in v1 (clarifications §2)', () => {
   assert.equal(/** @type {Record<string, unknown>} */ (api).steboStream, undefined);
 });
 
-test('core modules export their entry points', () => {
-  assert.equal(typeof lexer.tokenize, 'function');
-  assert.equal(typeof parser.parse, 'function');
-  assert.equal(typeof ast.createDocument, 'function');
-  assert.equal(typeof runtime.makeTypeConstructor, 'function');
-  assert.equal(typeof evalMod.evaluate, 'function');
-  assert.equal(typeof runMod.start, 'function');
-  assert.equal(typeof runMod.run, 'function');
+test('named contract files export their runtime symbols', () => {
+  // lexer/tokens.js
+  assert.equal(typeof tokens.TokenType, 'object');
+  assert.equal(tokens.TokenType.SLOT_OPEN, 'slot-open');
+  // ast/nodes.js
+  assert.equal(nodes.NodeKind.FORMULA, 'Formula');
+  assert.equal(nodes.ExprKind.BINARY, 'Binary');
+  // runtime/values.js
+  assert.equal(values.TypeName.DURATION, 'duration');
+  assert.deepEqual([...values.PRECISION_ORDER], [
+    'year',
+    'month',
+    'day',
+    'hour',
+    'minute',
+    'second',
+  ]);
+  assert.equal(values.DURATION_UNITS.week, 604800);
+  // eval/evaluator.js
+  assert.equal(typeof evaluator.evaluate, 'function');
+  assert.equal(evaluator.ResultKind.SUSP, 'Susp');
+  // run/run.js
+  assert.equal(typeof runMachine.start, 'function');
+  assert.equal(typeof runMachine.run, 'function');
+  assert.equal(runMachine.Status.WAITING, 'waiting');
+  // validate/analyze
   assert.equal(typeof validateMod.validate, 'function');
   assert.equal(typeof analyzeMod.analyze, 'function');
-  assert.equal(typeof macros.expand, 'function');
-  assert.equal(typeof macros.finalize, 'function');
-  assert.equal(typeof driver.drive, 'function');
-  assert.equal(typeof driver.stebo, 'function');
+  assert.equal(analyzeMod.Streamability.FULL, 'full');
+  // macros
+  assert.equal(typeof expandMod.expand, 'function');
+  assert.equal(typeof finalizeMod.finalize, 'function');
+  // driver
+  assert.equal(typeof asyncDriver.drive, 'function');
+  assert.equal(typeof asyncDriver.stebo, 'function');
+  assert.equal(asyncDriver.ProviderOutcome.UNRESOLVED, 'Unresolved');
+});
+
+test('module barrels re-export the contract entry points', () => {
+  assert.equal(typeof lexer.tokenize, 'function');
+  assert.equal(lexer.TokenType, tokens.TokenType);
+  assert.equal(typeof parser.parse, 'function');
+  assert.equal(typeof ast.createDocument, 'function');
+  assert.equal(ast.NodeKind, nodes.NodeKind);
 });
 
 test('version constants start at 1 (clarifications §11)', () => {

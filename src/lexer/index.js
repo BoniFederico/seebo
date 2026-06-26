@@ -1,44 +1,19 @@
 /**
- * @file Lexer: single pass, O(n), skippable atomic blocks (IMPL §2).
- * Dual mode: error-tolerant (`tokenize`) vs error-with-position (for `parse`).
- * v1 placeholder.
+ * @file Lexer barrel: re-exports the token contract ({@link ./tokens.js}) and the lexer
+ * function signatures. Single pass, O(n), skippable atomic blocks (IMPL §2).
+ * Dual mode: error-tolerant (`tokenize`) vs error-with-position (`lex`, for `parse`).
+ * v1 placeholders.
  */
 
 import { NotImplementedError } from '../util/errors.js';
 
-/**
- * Token kinds (IMPL §2). `kind` is for editor/highlighting.
- * @type {Readonly<Record<string, string>>}
- */
-export const TokenKind = Object.freeze({
-  TEXT: 'text',
-  SLOT_OPEN: 'slot-open',
-  SLOT_CLOSE: 'slot-close',
-  SIGIL: 'sigil',
-  NAME: 'name',
-  METHOD: 'method',
-  NUMBER: 'number',
-  STRING: 'string',
-  BOOL: 'bool',
-  OPERATOR: 'operator',
-  DOT: 'dot',
-  COMMA: 'comma',
-  PAREN: 'paren',
-  BRACKET: 'bracket',
-  BRACE: 'brace',
-  ARROW: 'arrow',
-  STAR: 'star',
-  COMMENT_BODY: 'comment-body',
-  MACRO_NAME: 'macro-name',
-});
+export { TokenType } from './tokens.js';
 
 /**
- * Flat token with position (IMPL §2).
- * @typedef {Object} Token
- * @property {string} kind  One of {@link TokenKind}.
- * @property {number} start Start offset (inclusive).
- * @property {number} end   End offset (exclusive).
+ * Backwards-compatible alias for {@link TokenType}.
+ * @type {Readonly<Record<string, string>>}
  */
+export { TokenType as TokenKind } from './tokens.js';
 
 /**
  * Tokenizes a template in **error-tolerant** mode (SPEC §2.3): never throws, used for
@@ -46,7 +21,7 @@ export const TokenKind = Object.freeze({
  *
  * @param {string} _template
  * @param {import('../index.js').EngineConfig} [_config]
- * @returns {Token[]}
+ * @returns {import('./tokens.js').Token[]}
  */
 export function tokenize(_template, _config) {
   throw new NotImplementedError('lexer.tokenize');
@@ -58,7 +33,7 @@ export function tokenize(_template, _config) {
  *
  * @param {string} _template
  * @param {import('../index.js').EngineConfig} [_config]
- * @returns {Token[]}
+ * @returns {import('./tokens.js').Token[]}
  */
 export function lex(_template, _config) {
   throw new NotImplementedError('lexer.lex');

@@ -20,6 +20,16 @@ import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util
 export { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION };
 export { DiagnosticCode, createDiagnostic, SeeboError, EngineConfigError } from './util/errors.js';
 
+// Public contract enums/constants (re-exported for discoverability).
+export { TokenType } from './lexer/tokens.js';
+export { NodeKind, ExprKind } from './ast/nodes.js';
+export { TypeName, PRECISION_ORDER, DURATION_UNITS } from './runtime/values.js';
+export { ResultKind } from './eval/evaluator.js';
+export { Status } from './run/run.js';
+export { Streamability } from './analyze/analyze.js';
+export { MacroFamily, BUILTIN_MACROS } from './macros/index.js';
+export { ProviderOutcome } from './driver/async_driver.js';
+
 /**
  * Language reserved words (SPEC §1.5). An identifier introduced by the application
  * cannot match any of these.
@@ -100,7 +110,7 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * @property {Array<unknown>} [functions]
  * @property {Array<unknown>} [macros]
  * @property {string[]} [libraries]
- * @property {Record<string, (req: import('./eval/index.js').RequirementDescriptor) => unknown>} [capabilities]
+ * @property {Record<string, (req: import('./eval/evaluator.js').RequirementDescriptor) => unknown>} [capabilities]
  * @property {EnginePolicy} [policy]
  * @property {string} [locale]
  * @property {() => Date} [clock]
@@ -163,16 +173,16 @@ export function createEngine(config = {}) {
   /**
    * @typedef {Object} Engine
    * @property {EngineConfig} config
-   * @property {(template: string) => import('./lexer/index.js').Token[]} tokenize
-   * @property {(template: string) => import('./ast/index.js').Document} parse
+   * @property {(template: string) => import('./lexer/tokens.js').Token[]} tokenize
+   * @property {(template: string) => import('./ast/nodes.js').Document} parse
    * @property {(template: string) => import('./util/errors.js').Diagnostic[]} validate
-   * @property {(template: string) => import('./analyze/index.js').Analysis} analyze
-   * @property {(template: string, initialValues?: Record<string, unknown>) => import('./run/index.js').PublicState} start
-   * @property {(state: import('./run/index.js').PublicState) => import('./run/index.js').PublicState} run
+   * @property {(template: string) => import('./analyze/analyze.js').Analysis} analyze
+   * @property {(template: string, initialValues?: Record<string, unknown>) => import('./run/run.js').PublicState} start
+   * @property {(state: import('./run/run.js').PublicState) => import('./run/run.js').PublicState} run
    * @property {(args: { template: string, templates?: Record<string, string> }) => Promise<string>} expand
    * @property {(text: string) => string} finalize
-   * @property {(stateOrTemplate: import('./run/index.js').PublicState | string, opts?: { stopOn?: string[] }) => Promise<import('./run/index.js').PublicState>} drive
-   * @property {(args: { template: string, templates?: Record<string, string>, values?: Record<string, unknown>, stopOn?: string[] }) => Promise<import('./run/index.js').PublicState>} stebo
+   * @property {(stateOrTemplate: import('./run/run.js').PublicState | string, opts?: { stopOn?: string[] }) => Promise<import('./run/run.js').PublicState>} drive
+   * @property {(args: { template: string, templates?: Record<string, string>, values?: Record<string, unknown>, stopOn?: string[] }) => Promise<import('./run/run.js').PublicState>} stebo
    */
 
   /** @type {Engine} */
