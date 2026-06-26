@@ -10,7 +10,7 @@
  * structured `SYNTAX_ERROR`. `parse` THROWS on malformed input (SPEC §2.3).
  */
 
-import { scan } from '../lexer/scanner.js';
+import { tokenize as scan } from '../lexer/lexer.js';
 import { TokenType } from '../lexer/tokens.js';
 import { AST_VERSION } from '../util/versions.js';
 import { SeeboError, DiagnosticCode } from '../util/errors.js';

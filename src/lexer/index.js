@@ -1,12 +1,12 @@
 /**
- * @file Lexer barrel: re-exports the token contract ({@link ./tokens.js}) and exposes the
- * lexer entry points backed by {@link ./scanner.js} (IMPL §2).
- * Dual mode: `tokenize` (error-tolerant, for editors) and `lex` (used by `parse`).
- * In v1 the scanner is shared and tolerant; the parser is responsible for turning
- * malformed structure into diagnostics.
+ * @file Lexer barrel: re-exports the token contract ({@link ./tokens.js}) and the lexer
+ * entry points backed by {@link ./lexer.js} (IMPL §2).
+ * Dual mode: `tokenize` (error-tolerant, for editors) and `lex` (used by `parse`). Both
+ * share the same tolerant scan in v1; the parser turns malformed structure into a thrown
+ * `SYNTAX_ERROR`.
  */
 
-import { scan } from './scanner.js';
+import { tokenize as tokenizeImpl } from './lexer.js';
 
 export { TokenType } from './tokens.js';
 
@@ -24,7 +24,7 @@ export { TokenType as TokenKind } from './tokens.js';
  * @returns {import('./tokens.js').Token[]}
  */
 export function tokenize(template, config) {
-  return scan(template, config);
+  return tokenizeImpl(template, config ?? {});
 }
 
 /**
@@ -35,5 +35,5 @@ export function tokenize(template, config) {
  * @returns {import('./tokens.js').Token[]}
  */
 export function lex(template, config) {
-  return scan(template, config);
+  return tokenizeImpl(template, config ?? {});
 }
