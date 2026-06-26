@@ -8,7 +8,17 @@
  *  - {@link DiagnosticCode.UNKNOWN_FUNCTION} — a call to an unknown producer/library;
  *  - {@link DiagnosticCode.UNKNOWN_CAPABILITY} — a `require` citing an unregistered capability;
  *  - {@link DiagnosticCode.POLICY_FORBIDDEN} — a capability excluded by `policy.allowedCapabilities`;
- *  - {@link DiagnosticCode.NON_EXHAUSTIVE_MATCH} — a `match` with no `*` default arm (IMPL §3/B.3).
+ *  - {@link DiagnosticCode.NON_EXHAUSTIVE_MATCH} — a `match` with no `*` default arm (IMPL §3/B.3);
+ *  - {@link DiagnosticCode.UNKNOWN_METHOD} — a method that does not exist on the (statically
+ *    inferred) receiver type;
+ *  - {@link DiagnosticCode.ARITY_MISMATCH} — a builtin/custom call or method with the wrong
+ *    number of arguments;
+ *  - {@link DiagnosticCode.TYPE_ERROR} — an operator/argument type violation provable from
+ *    statically known types.
+ *
+ * The last three rely on a conservative static type inferencer ({@link ./infer.js}): any type
+ * that cannot be proven collapses to `'unknown'`, which suppresses the corresponding check so
+ * `validate` never produces a false positive.
  *
  * A malformed template (which makes `parse` throw, unlike `tokenize`/`validate`) is surfaced
  * here as a single non-recoverable {@link DiagnosticCode.SYNTAX_ERROR}.
@@ -17,21 +27,14 @@
 import { parse } from '../parser/index.js';
 import { collectDeclarations, extractRequirement } from '../eval/symbols.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
-
-/** Builtin producer names that are valid call targets besides the type builders. */
-const BUILTIN_PRODUCERS = new Set(['require', 'var', 'now', 'date']);
-
-/** Builtin type names usable as producers/builders (SPEC §1.5). */
-const TYPE_NAMES = new Set([
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-]);
+import {
+  TYPE_NAMES,
+  PRODUCERS,
+  methodSig,
+  argMatches,
+  binaryResult,
+  unaryResult,
+} from './infer.js';
 
 /**
  * Runs the static validity analysis over a template. Pure; never throws.
@@ -66,24 +69,55 @@ export function validate(template, config) {
   const symbols = collectDeclarations(ast);
   const capabilities = new Set(Object.keys(cfg.capabilities ?? {}));
   const allowedCapabilities = cfg.policy?.allowedCapabilities;
+  const allowedTypes = cfg.policy?.allowedTypes;
+  const allowedFunctions = cfg.policy?.allowedFunctions;
   const libraries = new Set(cfg.libraries ?? []);
+  const registry = /** @type {any} */ (cfg).registry;
+
+  /**
+   * Emits {@link DiagnosticCode.POLICY_FORBIDDEN} when an allow-list is present and excludes
+   * `name`. A missing allow-list (`undefined`) imposes no restriction (SPEC §2.2).
+   * @param {string[] | undefined} allowList @param {'type'|'function'} kind
+   * @param {string} name @param {import('../ast/nodes.js').Expr} node
+   */
+  function checkPolicy(allowList, kind, name, node) {
+    if (allowList && !allowList.includes(name)) {
+      diagnostics.push(
+        diag(DiagnosticCode.POLICY_FORBIDDEN, node, `${kind} '${name}' is forbidden by policy`, {
+          kind,
+          name,
+        })
+      );
+    }
+  }
 
   /** @type {import('../util/errors.js').Diagnostic[]} */
   const diagnostics = [];
 
-  /** @param {import('../ast/nodes.js').Expr} expr */
+  /**
+   * Walks an expression, emitting diagnostics and returning its statically inferred type
+   * (see {@link ./infer.js}). `'unknown'` means "not provable" and suppresses type checks.
+   * @param {import('../ast/nodes.js').Expr} expr
+   * @returns {import('./infer.js').InferredType}
+   */
   function walk(expr) {
-    if (!expr || typeof expr !== 'object') return;
+    if (!expr || typeof expr !== 'object') return 'unknown';
     const e = /** @type {any} */ (expr);
     switch (e.kind) {
-      case 'Ref':
+      case 'Lit':
+        return e.type === 'int' || e.type === 'float' || e.type === 'bool' || e.type === 'string'
+          ? e.type
+          : 'unknown';
+      case 'Ref': {
         if (!symbols.has(e.name)) {
           diagnostics.push(
             diag(DiagnosticCode.UNDECLARED_NAME, e, `'${e.name}' is not declared`, { name: e.name })
           );
+          return 'unknown';
         }
-        return;
-      case 'Ternary':
+        return declaredType(symbols.get(e.name));
+      }
+      case 'Ternary': {
         if (e.nonExhaustiveMatch === true) {
           diagnostics.push(
             diag(
@@ -94,21 +128,23 @@ export function validate(template, config) {
             )
           );
         }
-        walk(e.cond);
-        walk(e.then);
-        walk(e.else);
-        return;
+        const cond = walk(e.cond);
+        if (cond !== 'unknown' && cond !== 'bool') {
+          diagnostics.push(
+            diag(DiagnosticCode.TYPE_ERROR, e.cond, `ternary condition must be bool, got ${cond}`)
+          );
+        }
+        const then = walk(e.then);
+        const els = walk(e.else);
+        return then === els ? then : 'unknown';
+      }
       case 'Call':
-        validateCall(e);
-        for (const arg of e.args) walk(arg);
-        return;
+        return validateCall(e);
       case 'Method':
-        walk(e.receiver);
-        for (const arg of e.args) walk(arg);
-        return;
+        return validateMethod(e);
       case 'Member':
         walk(e.receiver);
-        return;
+        return 'unknown';
       case 'Namespace':
         if (!libraries.has(e.ns)) {
           diagnostics.push(
@@ -117,37 +153,181 @@ export function validate(template, config) {
             })
           );
         }
+        // A library function is part of the function vocabulary (`policy.allowedFunctions`),
+        // gated by its qualified `ns.name`.
+        checkPolicy(allowedFunctions, 'function', `${e.ns}.${e.name}`, e);
         for (const arg of e.args) walk(arg);
-        return;
-      case 'Unary':
-        walk(e.arg);
-        return;
-      case 'Binary':
-        walk(e.left);
-        walk(e.right);
-        return;
+        return 'unknown';
+      case 'Unary': {
+        const t = walk(e.arg);
+        const res = unaryResult(e.op, t);
+        if ('error' in res) diagnostics.push(diag(DiagnosticCode.TYPE_ERROR, e, res.error));
+        return 'error' in res ? 'unknown' : res.ret;
+      }
+      case 'Binary': {
+        const l = walk(e.left);
+        const r = walk(e.right);
+        const res = binaryResult(e.op, l, r);
+        if ('error' in res) diagnostics.push(diag(DiagnosticCode.TYPE_ERROR, e, res.error));
+        return 'error' in res ? 'unknown' : res.ret;
+      }
       case 'ObjectLit':
         for (const entry of e.entries) walk(entry.value);
-        return;
+        return 'object';
       case 'ArrayLit':
         for (const el of e.elements) walk(el);
-        return;
+        return 'array';
       default:
-        return;
+        return 'unknown';
     }
   }
 
-  /** @param {import('../ast/nodes.js').CallNode} call */
+  /**
+   * Validates a producer call and returns its inferred result type.
+   * @param {import('../ast/nodes.js').CallNode} call
+   * @returns {import('./infer.js').InferredType}
+   */
   function validateCall(call) {
     const callee = call.callee;
     if (callee === 'require') {
       validateRequire(call);
-      return;
+      for (const arg of call.args) walk(arg);
+      return declaredCallType(call);
     }
-    if (BUILTIN_PRODUCERS.has(callee) || TYPE_NAMES.has(callee)) return;
+    if (callee === 'var') {
+      for (const arg of call.args) walk(arg);
+      return declaredCallType(call);
+    }
+    if (TYPE_NAMES.has(callee)) {
+      checkPolicy(allowedTypes, 'type', callee, call);
+      checkArity(call, callee, 0, 1);
+      for (const arg of call.args) walk(arg);
+      return /** @type {import('./infer.js').InferredType} */ (callee);
+    }
+    if (callee in PRODUCERS) {
+      checkPolicy(allowedFunctions, 'function', callee, call);
+      const p = PRODUCERS[callee];
+      checkArity(call, callee, p.min, p.max);
+      checkArgs(call.callee, call.args, p.args ?? []);
+      return p.ret;
+    }
+    const custom = registry?.getProducer?.(callee);
+    if (custom) {
+      checkPolicy(allowedFunctions, 'function', callee, call);
+      if (custom.arity) checkArity(call, callee, custom.arity.min, custom.arity.max);
+      for (const arg of call.args) walk(arg);
+      return 'unknown';
+    }
+    // A custom type constructor `T(value)` (defineType): one value argument (SPEC §2.6).
+    if (registry?.getType?.(callee)) {
+      checkPolicy(allowedTypes, 'type', callee, call);
+      checkArity(call, callee, 1, 1);
+      for (const arg of call.args) walk(arg);
+      return 'unknown';
+    }
     diagnostics.push(
       diag(DiagnosticCode.UNKNOWN_FUNCTION, call, `unknown function '${callee}'`, { name: callee })
     );
+    for (const arg of call.args) walk(arg);
+    return 'unknown';
+  }
+
+  /**
+   * Validates a transformer method call and returns its inferred result type.
+   * @param {import('../ast/nodes.js').MethodNode} method
+   * @returns {import('./infer.js').InferredType}
+   */
+  function validateMethod(method) {
+    const recvType = walk(method.receiver);
+    const argTypes = method.args.map(walk);
+
+    // A non-builtin receiver type (unknown or a custom type) suppresses method/arity checks.
+    if (!TYPE_NAMES.has(recvType)) return 'unknown';
+
+    const s = methodSig(recvType, method.name);
+    if (!s) {
+      // A custom transformer registered for this receiver type takes over (SPEC §2.6); as a
+      // function it is also subject to `policy.allowedFunctions`.
+      if (registry?.getTransformer?.(recvType, method.name)) {
+        checkPolicy(allowedFunctions, 'function', method.name, method);
+        return 'unknown';
+      }
+      diagnostics.push(
+        diag(
+          DiagnosticCode.UNKNOWN_METHOD,
+          method,
+          `unknown method '${method.name}' on ${recvType}`,
+          { type: recvType, name: method.name }
+        )
+      );
+      return 'unknown';
+    }
+
+    checkArity(method, method.name, s.min, s.max);
+    for (let i = 0; i < s.args.length && i < argTypes.length; i++) {
+      if (!argMatches(s.args[i], argTypes[i])) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.TYPE_ERROR,
+            method.args[i],
+            `'${method.name}' argument ${i + 1} expects ${s.args[i]}, got ${argTypes[i]}`
+          )
+        );
+      }
+    }
+    return s.ret === 'self' ? recvType : s.ret;
+  }
+
+  /**
+   * Emits {@link DiagnosticCode.ARITY_MISMATCH} when an argument count is out of range.
+   * @param {import('../ast/nodes.js').Expr} node @param {string} name
+   * @param {number} min @param {number} max
+   */
+  function checkArity(node, name, min, max) {
+    const n = /** @type {any} */ (node).args.length;
+    if (n < min || n > max) {
+      const want = min === max ? `${min}` : `${min}..${max}`;
+      diagnostics.push(
+        diag(DiagnosticCode.ARITY_MISMATCH, node, `'${name}' expects ${want} argument(s), got ${n}`, {
+          name,
+        })
+      );
+    }
+  }
+
+  /**
+   * Type-checks the positional arguments of a builtin producer.
+   * @param {string} name @param {import('../ast/nodes.js').Expr[]} args
+   * @param {import('./infer.js').ArgClass[]} expected
+   */
+  function checkArgs(name, args, expected) {
+    for (let i = 0; i < expected.length && i < args.length; i++) {
+      const t = walk(args[i]);
+      if (!argMatches(expected[i], t)) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.TYPE_ERROR,
+            args[i],
+            `'${name}' argument ${i + 1} expects ${expected[i]}, got ${t}`
+          )
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolves the declared base type of a `require`/`var` call (the descriptor's `type`),
+   * normalized to `'unknown'` for custom (non-builtin) types.
+   * @param {import('../ast/nodes.js').CallNode} call
+   * @returns {import('./infer.js').InferredType}
+   */
+  function declaredCallType(call) {
+    try {
+      const d = extractRequirement(call);
+      return normalizeType(/** @type {any} */ (d).type?.type);
+    } catch {
+      return 'unknown';
+    }
   }
 
   /** @param {import('../ast/nodes.js').CallNode} call */
@@ -182,6 +362,27 @@ export function validate(template, config) {
     else if (node.kind === 'Macro') for (const a of /** @type {any} */ (node).args) walk(a);
   }
   return diagnostics;
+}
+
+/**
+ * Reads the declared base type of a symbol-table entry, normalized to `'unknown'`.
+ * @param {{ descriptor?: { type?: { type?: string } } } | undefined} entry
+ * @returns {import('./infer.js').InferredType}
+ */
+function declaredType(entry) {
+  return normalizeType(entry?.descriptor?.type?.type);
+}
+
+/**
+ * Maps a raw type name to the inference lattice: builtin base types pass through; anything
+ * else (custom types, missing) becomes `'unknown'` so it suppresses static checks.
+ * @param {string | undefined} name
+ * @returns {import('./infer.js').InferredType}
+ */
+function normalizeType(name) {
+  return name && TYPE_NAMES.has(name)
+    ? /** @type {import('./infer.js').InferredType} */ (name)
+    : 'unknown';
 }
 
 /**

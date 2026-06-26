@@ -46,10 +46,44 @@ test('SPEC §1.5 — array().min() pipeline (=1)', async () => {
 
 // SPEC §1.3/§1.5 — duration totals vs components on duration(50 * 3600) (= 50 hours).
 //   .totalHours() → "50" ; .days() → "2" ; .hours() → "2"
-test('SPEC §1.5 — duration totals vs components (50h)', PENDING, async () => {
+test('SPEC §1.5 — duration totals vs components (50h)', async () => {
   assert.equal(await renderExpr('duration(50 * 3600).totalHours()'), '50');
   assert.equal(await renderExpr('duration(50 * 3600).days()'), '2');
   assert.equal(await renderExpr('duration(50 * 3600).hours()'), '2');
+});
+
+// SPEC §1.5/§2.7 — the explicit datetime() producer parses a canonical ISO-8601 string
+// (distinct from fromJs inference, which never auto-parses strings).
+test('SPEC §2.7 — datetime() parses an ISO-8601 string', async () => {
+  assert.equal(await renderExpr("datetime('2026-06-20T10:00:00Z').year()"), '2026');
+  assert.equal(await renderExpr("datetime('2026-06-20').month()"), '6');
+  // A 6-day span between two parsed instants → totalDays() renders as "6" (no padding zeros).
+  assert.equal(
+    await renderExpr("(datetime('2026-06-26') - datetime('2026-06-20')).totalDays()"),
+    '6'
+  );
+});
+
+// SPEC §1.5 — datetime transformer methods in method form: truncate / add / sub.
+test('SPEC §1.5 — datetime truncate/add/sub method forms', async () => {
+  // truncate('month') drops day/time → first day of the month at 00:00:00 UTC.
+  assert.equal(
+    await renderExpr("datetime('2026-06-20T10:30:45Z').truncate('month').day()"),
+    '1'
+  );
+  assert.equal(
+    await renderExpr("datetime('2026-06-20T10:30:45Z').truncate('day').hour()"),
+    '0'
+  );
+  // add/sub are the method forms of datetime ± duration (SPEC §1.4).
+  assert.equal(
+    await renderExpr("datetime('2026-06-20').add(duration(86400)).day()"),
+    '21'
+  );
+  assert.equal(
+    await renderExpr("datetime('2026-06-20').sub(duration(86400)).day()"),
+    '19'
+  );
 });
 
 // SPEC §1.3 — duration stringification: leftmost token absorbs overflow.

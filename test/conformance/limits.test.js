@@ -64,6 +64,48 @@ test('IMPL §13 — evaluator steps over maxSteps ⇒ STEP_LIMIT_EXCEEDED', () =
 });
 
 /* ----------------------------------------------------------------------------------- *
+ * Output size (emission) — SPEC §1.11 / IMPL §13
+ * ----------------------------------------------------------------------------------- */
+
+test('IMPL §13 — output over maxOutputBytes ⇒ OUTPUT_LIMIT_EXCEEDED', () => {
+  const engine = realEngine({ limits: { maxOutputBytes: 4 } });
+  const state = engine.run(engine.start('Hello, world')); // 12 bytes > 4
+  assert.equal(state.status, Status.FAILED);
+  assertHasCode(state.diagnostics ?? [], DiagnosticCode.OUTPUT_LIMIT_EXCEEDED);
+});
+
+test('output within maxOutputBytes completes normally (UTF-8 measured)', () => {
+  const engine = realEngine({ limits: { maxOutputBytes: 4 } });
+  // "€" is 3 UTF-8 bytes, under the limit.
+  const state = engine.run(engine.start('€'));
+  assert.equal(state.status, Status.COMPLETED);
+  assert.equal(state.output, '€');
+});
+
+/* ----------------------------------------------------------------------------------- *
+ * State versioning (IMPL §14) — reject a state from a newer engine
+ * ----------------------------------------------------------------------------------- */
+
+test('IMPL §14 — a future stateVersion is rejected with UNSUPPORTED_STATE_VERSION', () => {
+  const engine = realEngine();
+  const fromTheFuture = { ...engine.start('${ 1 }'), stateVersion: 999 };
+  const state = engine.run(fromTheFuture);
+  assert.equal(state.status, Status.FAILED);
+  assertHasCode(state.diagnostics ?? [], DiagnosticCode.UNSUPPORTED_STATE_VERSION);
+  const d = (state.diagnostics ?? []).find(
+    (x) => x.code === DiagnosticCode.UNSUPPORTED_STATE_VERSION
+  );
+  assert.deepEqual(d?.data, { found: 999, supported: 1 });
+});
+
+test('IMPL §14 — a current-version state runs normally', () => {
+  const engine = realEngine();
+  const state = engine.run(engine.start('${ 1 + 1 }'));
+  assert.equal(state.status, Status.COMPLETED);
+  assert.equal(state.output, '2');
+});
+
+/* ----------------------------------------------------------------------------------- *
  * Macro recursion (EXPAND) — IMPL §10.1/§13
  * ----------------------------------------------------------------------------------- */
 

@@ -12,11 +12,13 @@ import {
   makeString,
   makeArray,
   makeDuration,
+  makeDatetime,
   isNumeric,
   objectGet,
   arrayGet,
   withFormat,
   withConstraints,
+  validate,
   DURATION_UNITS,
   PRECISION_ORDER,
 } from '../runtime/values.js';
@@ -36,7 +38,16 @@ import { SeeboError, DiagnosticCode } from '../util/errors.js';
 export function applyMethod(recv, name, args) {
   // Presentation / constraint builders are available on any value (SPEC §1.5).
   if (name === 'format') return withFormat(recv, asJson(arg(args, 0, name)));
-  if (name === 'constraints') return withConstraints(recv, asJson(arg(args, 0, name)));
+  if (name === 'constraints') {
+    // Attaching constraints to a concrete value validates it on the spot: a value that
+    // violates its own constraints surfaces as `CONSTRAINT_VIOLATION` in `run` (SPEC §1.10).
+    const constrained = withConstraints(recv, asJson(arg(args, 0, name)));
+    const diag = validate(constrained);
+    if (diag) {
+      throw new SeeboError(diag.message, { code: DiagnosticCode.CONSTRAINT_VIOLATION });
+    }
+    return constrained;
+  }
 
   switch (recv.type) {
     case 'string':
@@ -49,7 +60,7 @@ export function applyMethod(recv, name, args) {
     case 'duration':
       return durationMethod(recv, name, args);
     case 'datetime':
-      return datetimeMethod(recv, name);
+      return datetimeMethod(recv, name, args);
     case 'object':
       return objectMethod(recv, name, args);
     default:
@@ -188,15 +199,15 @@ function durationMethod(recv, name, args) {
   const sec = /** @type {number} */ (recv.value);
   switch (name) {
     case 'totalSeconds':
-      return makeFloat(sec / DURATION_UNITS.second);
+      return total(sec / DURATION_UNITS.second);
     case 'totalMinutes':
-      return makeFloat(sec / DURATION_UNITS.minute);
+      return total(sec / DURATION_UNITS.minute);
     case 'totalHours':
-      return makeFloat(sec / DURATION_UNITS.hour);
+      return total(sec / DURATION_UNITS.hour);
     case 'totalDays':
-      return makeFloat(sec / DURATION_UNITS.day);
+      return total(sec / DURATION_UNITS.day);
     case 'totalWeeks':
-      return makeFloat(sec / DURATION_UNITS.week);
+      return total(sec / DURATION_UNITS.week);
     case 'weeks':
       return makeInt(component(sec, 'week'));
     case 'days':
@@ -220,6 +231,15 @@ function durationMethod(recv, name, args) {
     default:
       throw unknownMethod('duration', name);
   }
+}
+
+/**
+ * A duration **total** as a float rendered in its natural form (no padding zeros): SPEC §1.5
+ * shows `duration(50*3600).totalHours()` as `50`, not `50,00` (IMPL §4.3).
+ * @param {number} n @returns {Value}
+ */
+function total(n) {
+  return makeFloat(n, { format: { trimZeros: true } });
 }
 
 /**
@@ -263,9 +283,10 @@ function truncTo(sec, unit) {
  * datetime (IMPL §4.1)
  * ----------------------------------------------------------------------------------- */
 
-/** @param {Value} recv @param {string} name @returns {Value} */
-function datetimeMethod(recv, name) {
-  const d = new Date(/** @type {number} */ (recv.value));
+/** @param {Value} recv @param {string} name @param {Value[]} args @returns {Value} */
+function datetimeMethod(recv, name, args) {
+  const epochMs = /** @type {number} */ (recv.value);
+  const d = new Date(epochMs);
   switch (name) {
     case 'year':
       return makeInt(d.getUTCFullYear());
@@ -279,9 +300,41 @@ function datetimeMethod(recv, name) {
       return makeInt(d.getUTCMinutes());
     case 'second':
       return makeInt(d.getUTCSeconds());
+    case 'truncate':
+      return truncateDatetime(d, precisionArg(args, 0, name));
+    case 'add':
+      return makeDatetime(epochMs + durationSecArg(args, 0, name) * 1000);
+    case 'sub':
+      return makeDatetime(epochMs - durationSecArg(args, 0, name) * 1000);
     default:
       throw unknownMethod('datetime', name);
   }
+}
+
+/**
+ * Truncates a datetime to the given calendar precision in UTC (SPEC §1.5 `d.truncate`).
+ * The resulting value records its coarser granularity in `constraints.precision`.
+ * @param {Date} d  Source instant.
+ * @param {string} unit  One of {@link PRECISION_ORDER}.
+ * @returns {Value}
+ */
+function truncateDatetime(d, unit) {
+  const y = d.getUTCFullYear();
+  const mo = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const h = d.getUTCHours();
+  const mi = d.getUTCMinutes();
+  const s = d.getUTCSeconds();
+  /** @type {Record<string, number>} */
+  const ms = {
+    year: Date.UTC(y, 0, 1),
+    month: Date.UTC(y, mo, 1),
+    day: Date.UTC(y, mo, day),
+    hour: Date.UTC(y, mo, day, h),
+    minute: Date.UTC(y, mo, day, h, mi),
+    second: Date.UTC(y, mo, day, h, mi, s),
+  };
+  return makeDatetime(ms[unit], { constraints: { precision: unit } });
 }
 
 /* ----------------------------------------------------------------------------------- *
@@ -337,6 +390,22 @@ function unitArg(args, i, name) {
     throw typeErr(`'${name}' expects a unit, got '${u}'`);
   }
   return u;
+}
+
+/** @param {Value[]} args @param {number} i @param {string} name @returns {string} */
+function precisionArg(args, i, name) {
+  const u = strArg(args, i, name);
+  if (!PRECISION_ORDER.includes(u)) {
+    throw typeErr(`'${name}' expects a calendar precision, got '${u}'`);
+  }
+  return u;
+}
+
+/** @param {Value[]} args @param {number} i @param {string} name @returns {number} */
+function durationSecArg(args, i, name) {
+  const v = arg(args, i, name);
+  if (v.type !== 'duration') throw typeErr(`'${name}' expects a duration argument`);
+  return /** @type {number} */ (v.value);
 }
 
 /** Reads a config-object argument's JSON (for format/constraints). @param {Value} v @returns {Record<string, unknown>} */

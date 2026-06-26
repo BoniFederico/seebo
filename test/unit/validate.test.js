@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { realEngine, codesOf, assertHasCode, assertCodes } from '../helpers/index.js';
 import { DiagnosticCode } from '../../src/util/errors.js';
+import { defineFunction } from '../../src/index.js';
 
 test('UNKNOWN_FUNCTION for an unknown producer call', () => {
   const diags = realEngine().validate('${ frobnicate(1) }');
@@ -39,6 +40,36 @@ test('POLICY_FORBIDDEN when a used capability is not allow-listed', () => {
   assert.deepEqual(d?.data, { kind: 'capability', name: 'crm' });
 });
 
+test('POLICY_FORBIDDEN when a type is not in policy.allowedTypes', () => {
+  const engine = realEngine({ policy: { allowedTypes: ['string'] } });
+  const diags = engine.validate('${ int(1) }');
+  assertHasCode(diags, DiagnosticCode.POLICY_FORBIDDEN);
+  const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
+  assert.deepEqual(d?.data, { kind: 'type', name: 'int' });
+  // An allowed type produces no policy diagnostic.
+  assert.ok(!codesOf(engine.validate("${ string(1) }")).includes(DiagnosticCode.POLICY_FORBIDDEN));
+});
+
+test('POLICY_FORBIDDEN when a function is not in policy.allowedFunctions', () => {
+  const engine = realEngine({ policy: { allowedFunctions: ['date'] } });
+  const diags = engine.validate('${ now() }');
+  assertHasCode(diags, DiagnosticCode.POLICY_FORBIDDEN);
+  const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
+  assert.deepEqual(d?.data, { kind: 'function', name: 'now' });
+});
+
+test('allowedFunctions gates a custom producer but not builtin methods', () => {
+  const engine = realEngine({
+    functions: [defineFunction('greet', { eval: () => 'hi' })],
+    policy: { allowedFunctions: ['now'] },
+  });
+  assertHasCode(engine.validate('${ greet() }'), DiagnosticCode.POLICY_FORBIDDEN);
+  // Builtin methods are part of the (allowed) type surface, not gated by allowedFunctions.
+  assert.ok(
+    !codesOf(engine.validate("${ 'ab'.upper() }")).includes(DiagnosticCode.POLICY_FORBIDDEN)
+  );
+});
+
 test('builtin producers and type builders are accepted', () => {
   const engine = realEngine();
   assertCodes(engine.validate('${ now() }'), []);
@@ -58,4 +89,57 @@ test('malformed syntax surfaces a single SYNTAX_ERROR (validate never throws)', 
   const diags = realEngine().validate('${ 1 + }');
   assertCodes(diags, [DiagnosticCode.SYNTAX_ERROR]);
   assert.equal(diags[0].recoverable, false);
+});
+
+/* ----------------------------------------------------------------------------------- *
+ * Static type checks (SPEC §1.10, IMPL §8): UNKNOWN_METHOD / ARITY_MISMATCH / TYPE_ERROR
+ * ----------------------------------------------------------------------------------- */
+
+test('UNKNOWN_METHOD for a method that does not exist on the inferred type', () => {
+  const engine = realEngine();
+  assertHasCode(engine.validate("${ 'abc'.year() }"), DiagnosticCode.UNKNOWN_METHOD);
+  // Inference flows through builtins: now() → datetime, which has no .upper().
+  assertHasCode(engine.validate('${ now().upper() }'), DiagnosticCode.UNKNOWN_METHOD);
+});
+
+test('ARITY_MISMATCH for builtin methods and producers with the wrong argument count', () => {
+  const engine = realEngine();
+  assertHasCode(engine.validate("${ 'abc'.left() }"), DiagnosticCode.ARITY_MISMATCH); // left needs 1
+  assertHasCode(engine.validate('${ now(1) }'), DiagnosticCode.ARITY_MISMATCH); // now needs 0
+});
+
+test('TYPE_ERROR for statically provable operator and argument violations', () => {
+  const engine = realEngine();
+  assertHasCode(engine.validate("${ 1 + 'a' }"), DiagnosticCode.TYPE_ERROR); // no implicit coercion
+  assertHasCode(engine.validate('${ now() + now() }'), DiagnosticCode.TYPE_ERROR); // datetime+datetime
+  assertHasCode(engine.validate('${ not 1 }'), DiagnosticCode.TYPE_ERROR); // not on int
+  assertHasCode(engine.validate("${ 'abc'.left('x') }"), DiagnosticCode.TYPE_ERROR); // left wants numeric
+});
+
+test('no false positives: valid pipelines and unknown types produce no type diagnostics', () => {
+  const engine = realEngine({ capabilities: { user: () => undefined } });
+  assertCodes(engine.validate("${ 'abc'.upper().len() }"), []);
+  assertCodes(engine.validate('${ (now() - now()).totalDays().round() }'), []);
+  assertCodes(engine.validate('${ int(1) + int(2) }'), []);
+  // A member access yields an unknown type, which suppresses downstream method checks.
+  assertCodes(
+    engine.validate("${ require({id:'o',type:object(),capability:'user'}).whatever.foo() }"),
+    []
+  );
+});
+
+test('a declared requirement type drives method inference (datetime → UNKNOWN_METHOD)', () => {
+  const engine = realEngine({ capabilities: { user: () => undefined } });
+  const tpl = "${ require({id:'d',type:datetime(),capability:'user'}) }${ d.upper() }";
+  assertHasCode(engine.validate(tpl), DiagnosticCode.UNKNOWN_METHOD);
+  // The same datetime supports .year(), so that pipeline is clean.
+  const ok = "${ require({id:'d',type:datetime(),capability:'user'}) }${ d.year() }";
+  assert.ok(!codesOf(engine.validate(ok)).includes(DiagnosticCode.UNKNOWN_METHOD));
+});
+
+test('a registered custom transformer is not reported as UNKNOWN_METHOD', () => {
+  const engine = realEngine({
+    functions: [defineFunction('slugify', { receiver: 'string', eval: (s) => s })],
+  });
+  assertCodes(engine.validate("${ 'Hello'.slugify() }"), []);
 });

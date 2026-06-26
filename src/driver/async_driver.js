@@ -262,16 +262,20 @@ function message(e) {
 }
 
 /**
- * Emits an audit event (no secret value), honoring `policy.audit` (clarifications §6).
+ * Emits an audit event (no secret value) to the `policy.audit` sink, honoring the
+ * per-capability `policy.capabilityRules[cap].audit` flag (SPEC §2.2, clarifications §6).
+ * The sink receives every resolution by default; a capability whose rule sets
+ * `audit: false` is suppressed, while `audit: true` is explicit opt-in.
  * @param {import('../index.js').EngineConfig} cfg
  * @param {import('../eval/evaluator.js').RequirementDescriptor} need
  * @param {string} outcome
  */
 function auditEvent(cfg, need, outcome) {
   const audit = cfg.policy?.audit;
-  if (typeof audit === 'function') {
-    audit({ capability: need.capability, id: need.id, outcome });
-  }
+  if (typeof audit !== 'function') return;
+  const rule = cfg.policy?.capabilityRules?.[need.capability];
+  if (rule && rule.audit === false) return; // per-capability opt-out
+  audit({ capability: need.capability, id: need.id, outcome });
 }
 
 /**

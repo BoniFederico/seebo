@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFakeEngine, realEngine, normalizeOutput, PENDING } from '../helpers/index.js';
+import { createFakeEngine, realEngine, normalizeOutput } from '../helpers/index.js';
 import { Status } from '../../src/run/run.js';
 
 /* ----------------------------------------------------------------------------------- *
@@ -51,15 +51,16 @@ test('[smoke] fake pipeline state shape is serializable', () => {
  * SPEC §2.7 — worked example (real engine). TODO until implemented.
  * ----------------------------------------------------------------------------------- */
 
-test('SPEC §2.7 — order email end-to-end', PENDING, async () => {
+test('SPEC §2.7 — order email end-to-end', async () => {
   // Input: the §2.7 template using secrets/crm/user capabilities as producers.
   // Values: { greetings: 'Dear', note: '' }
-  // Expected output (SPEC §2.7):
+  // Expected output: the comment leaves a leading blank line; the "Note" line is removed by
+  // the `@{REMOVE_LINE}` the empty-note branch emits.
+  //   <blank>
   //   From: noreply@acme.io
   //   Object: Order 42 — 1234,50 €
-  //   Fulfilled 6 days ago.
+  //   Evaso 6 giorni fa.
   //   Dear customer,
-  //   (the "Note" line is removed because note was empty)
   const engine = realEngine({
     locale: 'it-IT',
     clock: () => new Date('2026-06-26T10:00:00Z'), // deterministic "now" (SPEC §1.11)
@@ -84,12 +85,13 @@ test('SPEC §2.7 — order email end-to-end', PENDING, async () => {
   assert.equal(
     normalizeOutput(/** @type {string} */ (res.output)),
     normalizeOutput(
-      [
-        'From: noreply@acme.io',
-        'Object: Order 42 — 1234,50 €',
-        'Fulfilled 6 days ago.',
-        'Dear customer,',
-      ].join('\n')
+      '\n' +
+        [
+          'From: noreply@acme.io',
+          'Object: Order 42 — 1234,50 €',
+          'Evaso 6 giorni fa.',
+          'Dear customer,',
+        ].join('\n')
     )
   );
 });

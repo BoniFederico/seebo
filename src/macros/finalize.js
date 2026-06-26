@@ -11,8 +11,14 @@
  *
  * Algorithm (IMPL §10.2): markers are applied **left-to-right**, recomputing offsets after
  * each edit (a removal that would fall inside an already-removed span is a no-op). Only the
- * recognized layout macro names are processed; any other `@{…}` text is left untouched, so
+ * recognized layout macro names are processed — the builtin set plus any **custom layout
+ * macro** registered with an `apply` (SPEC §2.6); any other `@{…}` text is left untouched, so
  * arbitrary user data is not misinterpreted. Pure, synchronous, deterministic; no `eval`.
+ *
+ * Custom layout macros: a registered `defineMacro(name, { phase: 'finalize', apply })` is
+ * invoked as `apply(slot, doc)` where `slot = { name, args, start, end }` (raw source `args`)
+ * and `doc = { text }` is the full document; its return value (coerced to string) **replaces
+ * the marker span**, which guarantees the marker is consumed and the pass terminates.
  */
 
 import { SeeboError } from '../util/errors.js';
@@ -35,19 +41,46 @@ const MAX_MARKER_PASSES = 100_000;
 export function finalize(resolvedText, config) {
   const d = { ...DEFAULT_DELIMITERS, ...(config?.delimiters ?? {}) };
   const prefix = d.macro + d.open;
+  const registry = /** @type {any} */ (config)?.registry;
+
+  /** A name is recognized when it is a builtin layout macro or a custom layout macro with `apply`. */
+  const customMacro = (/** @type {string} */ name) => {
+    const def = registry?.getMacro?.(name);
+    return def && def.family === 'layout' && typeof (/** @type {any} */ (def).apply) === 'function'
+      ? def
+      : undefined;
+  };
+  const isRecognized = (/** @type {string} */ name) => LAYOUT_MACROS.has(name) || !!customMacro(name);
 
   let text = resolvedText;
   let collapseSeen = false;
 
   for (let pass = 0; pass < MAX_MARKER_PASSES; pass++) {
-    const marker = findFirstMarker(text, prefix, d.close);
+    const marker = findFirstMarker(text, prefix, d.close, isRecognized);
     if (!marker) break;
-    if (marker.name === 'COLLAPSE') collapseSeen = true;
-    text = applyMarker(text, marker);
+    if (LAYOUT_MACROS.has(marker.name)) {
+      if (marker.name === 'COLLAPSE') collapseSeen = true;
+      text = applyMarker(text, marker);
+    } else {
+      text = applyCustomMarker(text, marker, /** @type {any} */ (customMacro(marker.name)));
+    }
   }
 
   if (collapseSeen) text = collapseBlankLines(text);
   return text;
+}
+
+/**
+ * Applies a custom layout macro by replacing its marker span with the (stringified) result
+ * of `apply(slot, doc)`. Replacing the span guarantees the marker is consumed (termination).
+ * @param {string} text @param {Marker} m
+ * @param {{ apply: (slot: object, doc: object) => unknown }} def
+ * @returns {string}
+ */
+function applyCustomMarker(text, m, def) {
+  const slot = { name: m.name, args: m.args, start: m.start, end: m.end };
+  const replacement = def.apply(slot, { text });
+  return text.slice(0, m.start) + String(replacement ?? '') + text.slice(m.end);
 }
 
 /**
@@ -62,15 +95,16 @@ export function finalize(resolvedText, config) {
  * Finds the leftmost recognized layout marker in `text`, or `null`. Unknown `@{…}` blocks
  * are skipped (left in place). Linear scan; no backtracking.
  * @param {string} text @param {string} prefix  The `sigil+open` sequence. @param {string} close
+ * @param {(name: string) => boolean} isRecognized  Predicate for processable macro names.
  * @returns {Marker | null}
  */
-function findFirstMarker(text, prefix, close) {
+function findFirstMarker(text, prefix, close, isRecognized) {
   let from = 0;
   for (;;) {
     const at = text.indexOf(prefix, from);
     if (at < 0) return null;
     const parsed = parseMarker(text, at, prefix.length, close);
-    if (parsed && LAYOUT_MACROS.has(parsed.name)) return parsed;
+    if (parsed && isRecognized(parsed.name)) return parsed;
     from = at + prefix.length; // not a recognized marker → keep scanning
   }
 }

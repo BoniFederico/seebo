@@ -101,9 +101,9 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * Engine configuration (SPEC §2.2). Simplified shape for v1; non-normative fields are
  * still accepted but inert.
  * @typedef {Object} EngineConfig
- * @property {Array<string | TypeExtensionDef>} [types]  Application-defined types (from {@link defineType}).
- * @property {Array<FunctionExtensionDef>} [functions]  Application-defined producers/transformers (from {@link defineFunction}).
- * @property {Array<MacroExtensionDef>} [macros]  Application-defined macros (from {@link defineMacro}).
+ * @property {Array<string | TypeExtensionDef>} [types]  Application-defined types (from {@link defineType}); plain builtin names (from {@link builtins}) are accepted and ignored.
+ * @property {Array<string | FunctionExtensionDef>} [functions]  Application-defined producers/transformers (from {@link defineFunction}); plain builtin names are accepted and ignored.
+ * @property {Array<string | MacroExtensionDef>} [macros]  Application-defined macros (from {@link defineMacro}); plain builtin names are accepted and ignored.
  * @property {Array<string | LibraryExtensionDef>} [libraries]  Library namespaces to enable (name or {@link defineLibrary} descriptor).
  * @property {Record<string, import('./eval/evaluator.js').CapabilityFn>} [capabilities]  Capability providers keyed by name.
  * @property {EnginePolicy} [policy]  Runtime policy (allowlists, audit, redact, retry).
@@ -143,8 +143,9 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * ----------------------------------------------------------------------------------- */
 
 /**
- * Custom data type descriptor (SPEC §2.6). Registered/validated by name; full runtime
- * construction wiring is a future extension (v1 reserves the name in the producer namespace).
+ * Custom data type descriptor (SPEC §2.6). Registered/validated by name and wired into the
+ * evaluator: `name(arg)` constructs a value (running `validate` at construction), `stringify`
+ * renders it at slot emission, and `defaultFormat` seeds its `format`.
  * @typedef {Object} TypeExtensionDef
  * @property {'type'} kind
  * @property {string} name
@@ -167,11 +168,14 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
 
 /**
  * Custom macro descriptor (SPEC §2.6): an aggregator (pre-pass) or layout (post-pass) macro.
+ * A layout macro may carry an `apply(slot, doc)` invoked by FINALIZE on its emitted marker;
+ * its return value replaces the marker span (see {@link import('./macros/finalize.js').finalize}).
  * @typedef {Object} MacroExtensionDef
  * @property {'macro'} kind
  * @property {string} name
  * @property {'aggregator'|'layout'} [family]
  * @property {'expand'|'finalize'} [phase]
+ * @property {(slot: { name: string, args: string[], start: number, end: number }, doc: { text: string }) => unknown} [apply]
  */
 
 /**
@@ -276,19 +280,49 @@ export function createEngine(config = {}) {
 }
 
 /**
- * Builtin vocabulary ready to spread into `createEngine` (SPEC §2.2). v1 placeholder:
- * the sets are wired but empty until types/functions/macros are implemented.
+ * The standard vocabulary the core implements directly (SPEC §1.3/§1.5/§1.8): base types,
+ * standard producers, and layout/aggregator macros. These names are always available — the
+ * engine has them built in — and are exposed here as **names** so an application can spread
+ * `...builtins.all` into `createEngine` to be explicit about the language surface (SPEC §2.2).
+ * Spreading them is a no-op for the engine (they are reserved/handled regardless), and the
+ * registry safely ignores plain-string entries; custom `define*` descriptors are added on top.
+ */
+const BUILTIN_TYPE_NAMES = Object.freeze([
+  'int',
+  'float',
+  'bool',
+  'string',
+  'datetime',
+  'duration',
+  'object',
+  'array',
+]);
+/** Standard producers the core implements (the type builders above are also producers). */
+const BUILTIN_FUNCTION_NAMES = Object.freeze(['now', 'date']);
+/** Builtin macro names (SPEC §1.8): aggregators (pre-pass) and layout (post-pass). */
+const BUILTIN_MACRO_NAMES = Object.freeze([
+  'ABSORB',
+  'MERGE',
+  'COLLAPSE',
+  'REMOVE_LINE',
+  'REMOVE_LEFT',
+  'REMOVE_RIGHT',
+]);
+
+/**
+ * Builtin vocabulary ready to spread into `createEngine` (SPEC §2.2). The sets list the
+ * standard names the core provides; `all` bundles the three for `...builtins.all`.
  *
- * @type {{ types: string[], functions: unknown[], macros: unknown[], all: { types: string[], functions: unknown[], macros: unknown[] } }}
+ * @type {{ types: string[], functions: string[], macros: string[], all: { types: string[], functions: string[], macros: string[] } }}
  */
 export const builtins = Object.freeze({
-  types: /** @type {string[]} */ ([]),
-  functions: /** @type {unknown[]} */ ([]),
-  macros: /** @type {unknown[]} */ ([]),
+  types: /** @type {string[]} */ ([...BUILTIN_TYPE_NAMES]),
+  functions: /** @type {string[]} */ ([...BUILTIN_FUNCTION_NAMES]),
+  macros: /** @type {string[]} */ ([...BUILTIN_MACRO_NAMES]),
   all: {
-    types: /** @type {string[]} */ ([]),
-    functions: /** @type {unknown[]} */ ([]),
-    macros: /** @type {unknown[]} */ ([]),
+    types: /** @type {string[]} */ ([...BUILTIN_TYPE_NAMES]),
+    functions: /** @type {string[]} */ ([...BUILTIN_FUNCTION_NAMES]),
+    macros: /** @type {string[]} */ ([...BUILTIN_MACRO_NAMES]),
   },
 });
 

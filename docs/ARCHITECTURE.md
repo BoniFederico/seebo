@@ -14,9 +14,12 @@ like `SPEC §x.y` / `IMPL §x` point to those documents.
 > graph, execution plan, metrics), and the macro passes **`expand`** (aggregators
 > `ABSORB`/`MERGE`, pre-pass) and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`, post-pass).
 > The full expression grammar evaluates (literals, refs, producers, methods, object/array
-> literals, operators incl. temporal arithmetic, ternary, desugared `match`). Still pending:
-> libraries (`fake.*`, throw `NotImplementedError`) and a few advanced evaluator features
-> exercised by the SPEC §2.7 end-to-end (kept `PENDING`).
+> literals, operators incl. temporal arithmetic, ternary, desugared `match`), and the SPEC §2.7
+> end-to-end example passes. The full conformance suite runs with **no skipped tests**.
+> Extension points are wired: custom types (`defineType` — construction/validation/stringify),
+> custom functions/transformers, custom finalize macros (`defineMacro` `apply`) and libraries;
+> `builtins.{types,functions,macros}` expose the standard vocabulary for `...builtins.all`.
+> Still pending: a shipped built-in `fake.*` library (the `defineLibrary` mechanism exists).
 
 ## Design principles (SPEC §1.1)
 
@@ -57,11 +60,22 @@ directly); both are wired in `createEngine` and share the static symbol table (I
 
 Parses, builds the symbol table, and walks the AST reporting `UNDECLARED_NAME`,
 `UNKNOWN_FUNCTION` (unknown producer / un-enabled library), `UNKNOWN_CAPABILITY`,
-`POLICY_FORBIDDEN` (capability excluded by `policy.allowedCapabilities`) and
-`NON_EXHAUSTIVE_MATCH`. The last relies on a **non-normative marker** the parser attaches
-to the outermost ternary of a `match` desugared without a `*` arm (the marker is absent for
-exhaustive matches, so their AST is unchanged). `validate` never throws: a malformed
-template surfaces as a single `SYNTAX_ERROR` diagnostic.
+`POLICY_FORBIDDEN` (capability excluded by `policy.allowedCapabilities`),
+`NON_EXHAUSTIVE_MATCH`, and the statically deducible type checks `UNKNOWN_METHOD`,
+`ARITY_MISMATCH` and `TYPE_ERROR`. `NON_EXHAUSTIVE_MATCH` relies on a **non-normative
+marker** the parser attaches to the outermost ternary of a `match` desugared without a `*`
+arm (the marker is absent for exhaustive matches — including a `bool` match that covers
+`true`+`false` — so their AST is unchanged).
+
+The type checks are powered by a **conservative static type inferencer**
+(`src/validate/infer.js`) that mirrors the runtime contract of `eval/methods.js` and
+`eval/operators.js` at the type level. Its lattice is the eight base types plus `unknown`;
+anything not provable (member access, custom types, library results, un-typed refs) collapses
+to `unknown`, and any operation involving `unknown` is never reported — so `validate` only
+flags violations it can prove and never produces false positives. The walk threads each
+expression's inferred type bottom-up in a single pass; custom producers/transformers from the
+registry are consulted so application extensions are not mis-reported. `validate` never
+throws: a malformed template surfaces as a single `SYNTAX_ERROR` diagnostic.
 
 ### `analyze` (IMPL §9)
 
@@ -160,8 +174,11 @@ Three independently-versioned contracts cross the engine↔application boundary:
 - `stateVersion` — the `PublicState` shape (`src/run/run.js`).
 - `analysisVersion` — the `Analysis` shape (`src/analyze/analyze.js`).
 
-All start at `1` (clarifications §11). State migrators (`src/util/versions.js#migrations`)
-are an empty, future-ready list in v1.
+All start at `1` (clarifications §11). On `run`, a persisted `PublicState` is passed through
+`migrateState` (`src/util/versions.js`): an older `stateVersion` is upgraded by applying the
+registered migrators in sequence `v → v+1` (the `migrations` list is empty in v1), and a
+**newer** `stateVersion` is rejected with `UNSUPPORTED_STATE_VERSION` rather than guessed
+(IMPL §14, forward-compat not guaranteed).
 
 ## Security & limits
 

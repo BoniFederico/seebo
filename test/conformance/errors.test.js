@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { realEngine, assertHasCode, assertCodes } from '../helpers/index.js';
 import { DiagnosticCode } from '../../src/util/errors.js';
+import { Status } from '../../src/run/run.js';
 
 // SPEC §1.7/§1.10 — referencing an undeclared identifier is a static error.
 //   Input: ${ nome }   Expected: validate → [UNDECLARED_NAME], recoverable.
@@ -46,6 +47,22 @@ test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', () => {
   assertCodes(good, []);
 });
 
+// IMPL B.3 — a `bool` match covering both `true` and `false` is provably exhaustive even
+// without a `*` arm (closed domain), so no NON_EXHAUSTIVE_MATCH is reported.
+test('IMPL B.3 — bool match with true+false is exhaustive without default', () => {
+  const engine = realEngine({ capabilities: { user: () => undefined } });
+  const ok = engine.validate(
+    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes', false => 'no' } }"
+  );
+  assertCodes(ok, []);
+
+  // A single boolean arm does NOT cover the domain → still non-exhaustive.
+  const partial = engine.validate(
+    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes' } }"
+  );
+  assertHasCode(partial, DiagnosticCode.NON_EXHAUSTIVE_MATCH);
+});
+
 // SPEC §2.3 — a well-formed, fully-declared template yields no diagnostics.
 //   Input: ${ 1 + 2 }   Expected: validate → [].
 test('SPEC §2.3 — clean template has no diagnostics', () => {
@@ -58,6 +75,40 @@ test('SPEC §2.3 — clean template has no diagnostics', () => {
 test('SPEC §2.3 — parse throws on malformed syntax', () => {
   const engine = realEngine();
   assert.throws(() => engine.parse('${ 1 + }')); // ACTIVE: implemented by the v1 slice
+});
+
+// SPEC §1.10 — a value that violates its OWN constraints surfaces at run (not at validate),
+// because the violation depends on the concrete value, not the structure.
+//   Input: ${ int(5).constraints({ max: 3 }) }   Expected: status failed, [CONSTRAINT_VIOLATION].
+test('SPEC §1.10 — CONSTRAINT_VIOLATION on a computed value (max)', async () => {
+  const engine = realEngine();
+  // Static validate sees nothing wrong (the value is only known at run).
+  assertCodes(engine.validate('${ int(5).constraints({ max: 3 }) }'), []);
+  const res = await engine.stebo({ template: '${ int(5).constraints({ max: 3 }) }' });
+  assert.equal(res.status, Status.FAILED);
+  assertHasCode(res.diagnostics ?? [], DiagnosticCode.CONSTRAINT_VIOLATION);
+});
+
+// SPEC §1.10 — string length and array `values` constraints are likewise enforced at run.
+test('SPEC §1.10 — CONSTRAINT_VIOLATION on string length and array values', async () => {
+  const engine = realEngine();
+  const tooLong = await engine.stebo({ template: "${ 'abcd'.constraints({ maxLen: 2 }) }" });
+  assert.equal(tooLong.status, Status.FAILED);
+  assertHasCode(tooLong.diagnostics ?? [], DiagnosticCode.CONSTRAINT_VIOLATION);
+
+  const notAllowed = await engine.stebo({
+    template: "${ array(['x']).constraints({ values: ['a', 'b'] }) }",
+  });
+  assert.equal(notAllowed.status, Status.FAILED);
+  assertHasCode(notAllowed.diagnostics ?? [], DiagnosticCode.CONSTRAINT_VIOLATION);
+});
+
+// SPEC §1.10 — a value that satisfies its constraints renders normally.
+test('SPEC §1.10 — satisfied constraints render normally', async () => {
+  const engine = realEngine();
+  const res = await engine.stebo({ template: '${ int(2).constraints({ max: 3 }) }' });
+  assert.equal(res.status, Status.COMPLETED);
+  assert.equal(res.output, '2');
 });
 
 // IMPL B.5 — cyclic inclusion is detected (statically by analyze, fatally by run/expand).

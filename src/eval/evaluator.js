@@ -26,6 +26,7 @@ import {
   makeArray,
   makeDatetime,
   makeDuration,
+  makeCustom,
   fromJs,
   isValue,
   isNumeric,
@@ -134,7 +135,7 @@ export function evaluateDocument(ast, resolved, config) {
       if (macro.family === 'layout') output += renderMacroMarker(macro, config);
     } else if (node.kind === 'Formula') {
       const res = evaluate(/** @type {any} */ (node).expr, ctx);
-      if (res.kind === 'Ok') output += toText(res.value, config?.locale);
+      if (res.kind === 'Ok') output += toText(res.value, config?.locale, registryOf(ctx));
       else if (res.kind === 'Err') {
         return { status: 'failed', pending: [], diagnostics: [res.diagnostic] };
       }
@@ -144,7 +145,41 @@ export function evaluateDocument(ast, resolved, config) {
 
   const pending = [...ctx.needs.values()];
   if (pending.length > 0) return { status: 'waiting', pending };
+
+  // Output size limit (SPEC §1.11, IMPL §13): guard against runaway documents. Measured in
+  // UTF-8 bytes to match the normative "maxOutputBytes" unit.
+  const maxOutputBytes = config?.limits?.maxOutputBytes ?? DEFAULT_LIMITS.maxOutputBytes;
+  if (maxOutputBytes > 0 && byteLength(output) > maxOutputBytes) {
+    return {
+      status: 'failed',
+      pending: [],
+      diagnostics: [
+        createDiagnostic(DiagnosticCode.OUTPUT_LIMIT_EXCEEDED, {
+          severity: 'error',
+          phase: 'run',
+          recoverable: false,
+          message: `output exceeds maxOutputBytes (${maxOutputBytes})`,
+          data: { limit: maxOutputBytes },
+        }),
+      ],
+    };
+  }
   return { status: 'completed', output, pending: [] };
+}
+
+/** UTF-8 byte length of a string without allocating a Buffer for the common ASCII case. @param {string} s @returns {number} */
+function byteLength(s) {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) bytes += 1;
+    else if (c < 0x800) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      bytes += 4; // surrogate pair → one 4-byte code point
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 /**
@@ -432,7 +467,17 @@ function evalCall(e, ctx) {
     }
     const args = evalList(e.args, ctx);
     if (args.blocking) return args.blocking;
-    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values)), e);
+    return tryApply(() => construct(e.callee, /** @type {any} */ (args.values), registryOf(ctx)), e);
+  }
+  // Custom type constructor registered via defineType (SPEC §2.6), consulted before producers.
+  const typeDef = registryOf(ctx)?.getType?.(e.callee);
+  if (typeDef) {
+    if (e.args.length === 0) {
+      return err(DiagnosticCode.TYPE_ERROR_RUNTIME, e, `'${e.callee}()' is a type builder, not a value`);
+    }
+    const args = evalList(e.args, ctx);
+    if (args.blocking) return args.blocking;
+    return tryApply(() => constructCustom(typeDef, /** @type {any} */ (args.values)), e);
   }
   // Custom producer registered via defineFunction (SPEC §2.6), consulted only after builtins.
   const producer = registryOf(ctx)?.getProducer(e.callee);
@@ -554,13 +599,14 @@ function evalArrayLit(e, ctx) {
 /**
  * Constructs or converts a value for a type producer `T(arg)` (SPEC §1.5).
  * @param {string} type @param {import('../runtime/values.js').Value[]} args
+ * @param {import('../runtime/registry.js').Registry} [registry]  For stringifying custom-type receivers.
  * @returns {import('../runtime/values.js').Value}
  */
-function construct(type, args) {
+function construct(type, args, registry) {
   const v = args[0];
   switch (type) {
     case 'string':
-      return makeString(toText(v));
+      return makeString(toText(v, undefined, registry));
     case 'int':
       return convertInt(v);
     case 'float':
@@ -572,8 +618,11 @@ function construct(type, args) {
       if (!isNumeric(v)) throw typeErr('duration() expects a number of seconds');
       return makeDuration(/** @type {number} */ (v.value));
     case 'datetime':
-      if (!isNumeric(v)) throw typeErr('datetime() expects epoch milliseconds');
-      return makeDatetime(/** @type {number} */ (v.value));
+      if (isNumeric(v)) return makeDatetime(/** @type {number} */ (v.value));
+      // The explicit `datetime()` producer also accepts an ISO-8601 string (SPEC §1.5/§2.7).
+      // This is distinct from `fromJs` inference, which never auto-parses strings (clarifications §7).
+      if (v.type === 'string') return makeDatetime(parseIso(/** @type {string} */ (v.value)));
+      throw typeErr('datetime() expects epoch milliseconds or an ISO-8601 string');
     case 'object':
       if (v.type !== 'object') throw typeErr(`object() expects an object, got ${v.type}`);
       return v;
@@ -583,6 +632,43 @@ function construct(type, args) {
     default:
       throw typeErr(`unknown type '${type}'`);
   }
+}
+
+/**
+ * Constructs a custom-type value (SPEC §2.6 `defineType`). The first argument's plain JS
+ * payload becomes the value; the type's optional `validate(value, constraints)` runs at
+ * construction and a falsy result is a `CONSTRAINT_VIOLATION`. The descriptor's
+ * `defaultFormat` seeds the value's `format`.
+ * @param {import('../index.js').TypeExtensionDef} def
+ * @param {import('../runtime/values.js').Value[]} args
+ * @returns {import('../runtime/values.js').Value}
+ */
+function constructCustom(def, args) {
+  const value = makeCustom(def.name, args[0].value, { format: def.defaultFormat });
+  if (typeof def.validate === 'function') {
+    const ok = def.validate(value.value, /** @type {any} */ (value.constraints));
+    if (!ok) {
+      throw new SeeboError(`value is not a valid '${def.name}'`, {
+        code: DiagnosticCode.CONSTRAINT_VIOLATION,
+      });
+    }
+  }
+  return value;
+}
+
+/**
+ * Strictly parses a canonical ISO-8601 instant into epoch ms UTC (SPEC §2.7). Accepts
+ * `YYYY-MM-DD` optionally followed by `THH:mm[:ss[.sss]]` and an optional trailing `Z`; all
+ * times are interpreted as UTC. The regex is linear-time (no backtracking ⇒ ReDoS-safe).
+ * @param {string} s @returns {number}
+ */
+function parseIso(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?Z?$/.exec(
+    s.trim()
+  );
+  if (!m) throw typeErr(`datetime() cannot parse ISO-8601 string '${s}'`);
+  const ms = (m[7] ?? '').padEnd(3, '0');
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] ?? 0), +(m[5] ?? 0), +(m[6] ?? 0), +ms);
 }
 
 /** @param {import('../runtime/values.js').Value} v */

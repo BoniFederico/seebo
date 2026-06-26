@@ -120,6 +120,28 @@ test('policy — audit hook records capability invocations', async () => {
   assert.equal('value' in events[0], false); // never leaks the value
 });
 
+// SPEC §2.2 — per-capability audit opt-out: capabilityRules[cap].audit === false suppresses
+// the audit event for that capability while others are still recorded.
+test('policy — per-capability audit:false suppresses that capability', async () => {
+  /** @type {any[]} */
+  const events = [];
+  const engine = realEngine({
+    capabilities: { crm: () => 'A42', secrets: () => 'S3CR3T' },
+    policy: {
+      audit: (e) => events.push(e),
+      capabilityRules: { secrets: { audit: false } },
+    },
+  });
+  await engine.stebo({
+    template:
+      "${ crm({ id:'x', type:string(), capability:'crm' }) }${ secrets({ id:'k', type:string(), capability:'secrets' }) }",
+  });
+  assert.deepEqual(
+    events.map((e) => e.capability),
+    ['crm']
+  );
+});
+
 // IMPL §6.3 — the conversation loop terminates; bounded by limits.maxPhases.
 test('SPEC §2.4 — explicit run/satisfy loop terminates', async () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });

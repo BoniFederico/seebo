@@ -475,10 +475,35 @@ function parseMatch(ctx, subject) {
   // over an open domain (int/string/…). The marker is attached only in that case, so the
   // exhaustive form's AST stays byte-identical; `validate` reads it to emit
   // NON_EXHAUSTIVE_MATCH (IMPL §3 / B.3). It is ignored by every other phase.
-  if (defaultExpr === null && arms.length > 0) {
+  // A closed domain that the arms provably cover (today: `bool` with both `true` and
+  // `false`) is exhaustive even without `*`, so the marker is withheld.
+  if (defaultExpr === null && arms.length > 0 && !coversClosedDomain(arms)) {
     /** @type {any} */ (elseExpr).nonExhaustiveMatch = true;
   }
   return elseExpr;
+}
+
+/**
+ * Conservative, type-free exhaustiveness check on `match` arms (IMPL §3 / B.3). Returns
+ * `true` only when the arm tests provably cover a closed value domain without a `*` arm.
+ *
+ * The one closed domain decidable purely from the literals is `bool`: arms whose tests are
+ * boolean literals covering both `true` and `false` are exhaustive. Open domains
+ * (`int`/`string`/…) are never provably covered by enumerated arms, so they fall through.
+ *
+ * @param {{ test: import('../ast/nodes.js').Expr, result: import('../ast/nodes.js').Expr }[]} arms
+ * @returns {boolean}
+ */
+function coversClosedDomain(arms) {
+  let sawTrue = false;
+  let sawFalse = false;
+  for (const arm of arms) {
+    const t = arm.test;
+    if (t.kind !== 'Lit' || t.type !== 'bool') return false; // a non-bool-literal arm → open
+    if (t.value === true) sawTrue = true;
+    else sawFalse = true;
+  }
+  return sawTrue && sawFalse;
 }
 
 /**
