@@ -25,18 +25,23 @@ export const ProviderOutcome = Object.freeze({
 });
 
 /**
- * @typedef {(req: import('../eval/evaluator.js').RequirementDescriptor) => unknown | Promise<unknown>} CapabilityProvider
+ * Alias for the canonical capability provider type; see {@link import('../eval/evaluator.js').CapabilityFn}.
+ * @typedef {import('../eval/evaluator.js').CapabilityFn} CapabilityProvider
  */
+
 /**
+ * Options for {@link drive}.
  * @typedef {Object} DriveOptions
- * @property {string[]} [stopOn]
+ * @property {string[]} [stopOn]  Status values at which the driver should stop instead of continuing (e.g. `['waiting']`).
  */
+
 /**
+ * Arguments for the {@link stebo} convenience orchestrator.
  * @typedef {Object} SteboArgs
- * @property {string} template
- * @property {Record<string, string>} [templates]
- * @property {Record<string, unknown>} [values]
- * @property {string[]} [stopOn]
+ * @property {string} template  Main template source to evaluate.
+ * @property {Record<string, string>} [templates]  Named sub-templates for macro inclusion (expand pre-pass).
+ * @property {Record<string, unknown>} [values]  Initial resolved values to pre-populate `state.resolved`.
+ * @property {string[]} [stopOn]  Forwarded to the internal {@link drive} call; see {@link DriveOptions}.
  */
 
 /**

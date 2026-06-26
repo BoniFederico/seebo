@@ -20,41 +20,43 @@ export const Streamability = Object.freeze({
 });
 
 /**
- * Requirement dependency graph (SPEC §2.3, IMPL §9). An edge `A → B` means B is active
- * only in a branch whose condition depends on A.
+ * Requirement dependency graph (SPEC §2.3, IMPL §9). An edge `A → B` means requirement
+ * B is active only in a branch whose condition depends on A.
  * @typedef {Object} RequirementGraph
- * @property {Array<[string, string]>} edges
+ * @property {Array<[string, string]>} edges  Directed edges as `[from, to]` pairs of requirement ids.
  */
 
 /**
- * One execution phase (SPEC §2.3): which requirements become active in that phase.
- * @typedef {Object} Phase
- * @property {number} phase
- * @property {string[]} requirements
+ * One execution phase in the static plan (SPEC §2.3): which requirements become active
+ * in that phase. Named `ExecutionPhase` to avoid collision with {@link import('../util/errors.js').Phase}.
+ * @typedef {Object} ExecutionPhase
+ * @property {number} phase  Phase index (1-based, matching {@link import('../run/run.js').PublicState} `.phase`).
+ * @property {string[]} requirements  Requirement ids that become active in this phase.
  */
 
 /**
  * A statically detected cycle (inclusion or requirement graph), IMPL §9.
  * @typedef {Object} Cycle
- * @property {string[]} nodes
+ * @property {string[]} nodes  Ordered list of node ids forming the cycle.
  */
 
 /**
- * Output of `analyze` (SPEC §2.3). Carries `analysisVersion` (SPEC §2.1).
+ * Output of `analyze` (SPEC §2.3). Carries `analysisVersion` (SPEC §2.1). Produced once
+ * per template; consumed by `run` and the driver to drive scheduling and streaming.
  *
  * @typedef {Object} Analysis
- * @property {number} analysisVersion
- * @property {import('../ast/nodes.js').Document} ast
- * @property {import('../eval/evaluator.js').RequirementDescriptor[]} requirements
- * @property {RequirementGraph} requirementGraph
- * @property {Phase[]} executionPlan
- * @property {string[]} capabilitiesUsed
- * @property {Record<string, import('../runtime/values.js').Value>} staticValues
- * @property {boolean} deterministic
- * @property {'full'|'partial'|'buffered'} streamability
- * @property {Cycle[]} potentialCycles
- * @property {number} maxPhases
- * @property {number} worstCaseRequirements
+ * @property {number} analysisVersion  Schema version; see {@link ANALYSIS_VERSION}.
+ * @property {import('../ast/nodes.js').Document} ast  Parsed AST for the analyzed template.
+ * @property {import('../eval/evaluator.js').RequirementDescriptor[]} requirements  All requirements declared in the template.
+ * @property {RequirementGraph} requirementGraph  Dependency graph between requirements.
+ * @property {ExecutionPhase[]} executionPlan  Ordered list of execution phases with their active requirements.
+ * @property {string[]} capabilitiesUsed  Names of capabilities referenced by the template.
+ * @property {Record<string, import('../runtime/values.js').Value>} staticValues  Values that can be computed statically (no capability needed).
+ * @property {boolean} deterministic  `true` when the template produces the same output for the same inputs.
+ * @property {string} streamability  One of {@link Streamability}: streaming suitability of the template.
+ * @property {Cycle[]} potentialCycles  Cycles detected in the requirement or inclusion graph.
+ * @property {number} maxPhases  Upper bound on the number of `run` steps required.
+ * @property {number} worstCaseRequirements  Upper bound on the number of requirements across all phases.
  */
 
 /**
