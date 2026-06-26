@@ -146,10 +146,16 @@ test('the error policy exposes the normative diagnostic codes', () => {
   assert.deepEqual(diag.data, { name: 'foo' });
 });
 
-test('not-yet-implemented features still throw NotImplementedError', () => {
-  // analyze/validate are out of the v1 slice; define* are future extension points.
+test('validate and analyze are implemented (static passes)', () => {
+  // validate accumulates diagnostics (never throws); analyze returns an Analysis.
   const engine = api.createEngine();
-  assert.throws(() => engine.analyze('${ 1 }'), errors.NotImplementedError);
-  assert.throws(() => engine.validate('${ 1 }'), errors.NotImplementedError);
+  assert.deepEqual(engine.validate('${ 1 }'), []);
+  const a = engine.analyze('${ 1 }');
+  assert.equal(a.analysisVersion, 1);
+  assert.deepEqual(a.requirements, []);
+});
+
+test('not-yet-implemented features still throw NotImplementedError', () => {
+  // define* are future extension points (SPEC §2.6).
   assert.throws(() => api.defineType('money', {}), errors.NotImplementedError);
 });

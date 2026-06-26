@@ -8,14 +8,14 @@ like `SPEC §x.y` / `IMPL §x` point to those documents.
 
 > **Status: working engine core.** Implemented end-to-end: `tokenize`, `parse`, the
 > runtime value system, the **suspendable evaluator** (`Ok | Susp | Err` with lazy gating
-> and requirement `Need`s), the pure `run` state machine, and the **async driver**
-> (`drive`/`stebo`) with the four provider outcomes, `stopOn`, policy and limits.
-> The full expression grammar evaluates (literals, refs, producers, methods,
-> object/array literals, operators incl. temporal arithmetic, ternary, desugared `match`).
-> Still pending: `validate` and `analyze` (static passes), macro `expand`/`finalize`
-> (pre/post passes, currently pass-through), and libraries (`fake.*`) — these throw
-> `NotImplementedError` or are skipped in evaluation, and their conformance tests remain
-> `PENDING`.
+> and requirement `Need`s), the pure `run` state machine, the **async driver**
+> (`drive`/`stebo`) with the four provider outcomes, `stopOn`, policy and limits, and the
+> static passes **`validate`** (accumulating diagnostics) and **`analyze`** (requirement
+> graph, execution plan, metrics). The full expression grammar evaluates (literals, refs,
+> producers, methods, object/array literals, operators incl. temporal arithmetic, ternary,
+> desugared `match`). Still pending: macro `expand`/`finalize` (pre/post passes, currently
+> pass-through) and libraries (`fake.*`) — these throw `NotImplementedError` or are skipped
+> in evaluation, and their conformance tests remain `PENDING`.
 
 ## Design principles (SPEC §1.1)
 
@@ -46,6 +46,31 @@ testable, and lets the exact same code run on client and server.
 - **LEX / PARSE / VALIDATE / ANALYZE / RUN** are pure and synchronous (IMPL §1).
 - **EXPAND** (aggregators) and **FINALIZE** (layout) frame the execution.
 - **The async DRIVER** sits around `run`, querying capabilities to satisfy `Need`s.
+
+`VALIDATE` and `ANALYZE` are **independent static passes** over the same AST, not a chain:
+the host calls `engine.validate(template)` to collect diagnostics and `engine.analyze(template)`
+to obtain the `Analysis`. Neither is required by `run` (which re-parses and evaluates
+directly); both are wired in `createEngine` and share the static symbol table (IMPL §8).
+
+### `validate` (IMPL §8)
+
+Parses, builds the symbol table, and walks the AST reporting `UNDECLARED_NAME`,
+`UNKNOWN_FUNCTION` (unknown producer / un-enabled library), `UNKNOWN_CAPABILITY`,
+`POLICY_FORBIDDEN` (capability excluded by `policy.allowedCapabilities`) and
+`NON_EXHAUSTIVE_MATCH`. The last relies on a **non-normative marker** the parser attaches
+to the outermost ternary of a `match` desugared without a `*` arm (the marker is absent for
+exhaustive matches, so their AST is unchanged). `validate` never throws: a malformed
+template surfaces as a single `SYNTAX_ERROR` diagnostic.
+
+### `analyze` (IMPL §9)
+
+Consumes the AST + symbol table and computes the `Analysis`: `requirements` (enriched with
+derived `phase` and `options`), the `requirementGraph` (edge `A → B` when `B` is declared
+under a branch whose condition references `A`), the `executionPlan` (requirements grouped by
+phase, where phase = longest dependency path), `capabilitiesUsed`, `staticValues`
+(cold-resolvable pure formulas, evaluated with an empty environment), `deterministic`
+(false when `now()`/`fake.*` appear — v1 is conservative), `streamability`, `potentialCycles`,
+`maxPhases` (capped by `limits.maxPhases`) and `worstCaseRequirements`.
 
 ## Module responsibilities
 

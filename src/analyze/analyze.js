@@ -5,7 +5,9 @@
  */
 
 import { ANALYSIS_VERSION } from '../util/versions.js';
-import { NotImplementedError } from '../util/errors.js';
+import { parse } from '../parser/index.js';
+import { collectDeclarations, extractRequirement } from '../eval/symbols.js';
+import { evaluate } from '../eval/evaluator.js';
 
 export { ANALYSIS_VERSION };
 
@@ -59,13 +61,331 @@ export const Streamability = Object.freeze({
  * @property {number} worstCaseRequirements  Upper bound on the number of requirements across all phases.
  */
 
+/** Backward-acting layout macros (rewrite already-emitted text) → force buffering. */
+const BACKWARD_MACROS = new Set(['COLLAPSE', 'REMOVE_LINE', 'REMOVE_LEFT']);
+/** Aggregator macros (pre-pass inclusion) → may reorder ⇒ buffering. */
+const AGGREGATOR_MACROS = new Set(['ABSORB', 'MERGE']);
+
 /**
- * Describes what is needed to complete the document, without executing it. v1 placeholder.
+ * Statically describes what is needed to complete the document, without executing it
+ * (SPEC §2.3, IMPL §9). Pure: no data is fetched and no capability is queried.
  *
- * @param {string} _template
- * @param {import('../index.js').EngineConfig} [_config]
+ * @param {string} template  Raw template source.
+ * @param {import('../index.js').EngineConfig} [config]
  * @returns {Analysis}
+ * @throws {import('../util/errors.js').SeeboError}  On unrecoverable syntax errors (via `parse`).
  */
-export function analyze(_template, _config) {
-  throw new NotImplementedError('analyze.analyze');
+export function analyze(template, config) {
+  const cfg = config ?? {};
+  const ast = parse(template, cfg);
+  const symbols = collectDeclarations(ast);
+
+  /** Requirement ids declared in the document (excludes pure `var`s). @type {Set<string>} */
+  const reqIds = new Set();
+  for (const [id, decl] of symbols) if (decl.kind === 'require') reqIds.add(id);
+
+  // Requirement graph: edge A → B iff B is declared inside a branch whose governing
+  // condition references A (IMPL §9). Built by walking with the set of ids referenced by
+  // the conditions that gate the current position.
+  /** @type {Map<string, string[]>} */
+  const governing = new Map();
+  for (const node of ast.nodes) {
+    if (node.kind === 'Formula') walkGraph(/** @type {any} */ (node).expr, [], governing);
+    else if (node.kind === 'Macro')
+      for (const a of /** @type {any} */ (node).args) walkGraph(a, [], governing);
+  }
+
+  /** @type {Array<[string, string]>} */
+  const edges = [];
+  for (const [id, gids] of governing) {
+    for (const g of gids) edges.push([g, id]);
+  }
+
+  // Phases (longest path) + cycle detection over the requirement graph.
+  /** @type {Map<string, number>} */
+  const phaseMemo = new Map();
+  /** @type {Cycle[]} */
+  const potentialCycles = [];
+  /** @param {string} id @param {Set<string>} stack @returns {number} */
+  const phaseOf = (id, stack) => {
+    const cached = phaseMemo.get(id);
+    if (cached !== undefined) return cached;
+    const gids = governing.get(id) ?? [];
+    if (gids.length === 0) {
+      phaseMemo.set(id, 1);
+      return 1;
+    }
+    if (stack.has(id)) {
+      potentialCycles.push({ nodes: [...stack, id] });
+      return 1; // break the cycle
+    }
+    stack.add(id);
+    let max = 0;
+    for (const g of gids) {
+      const gp = reqIds.has(g) ? phaseOf(g, stack) : 1; // free vars are phase-1 roots
+      if (gp > max) max = gp;
+    }
+    stack.delete(id);
+    const p = 1 + max;
+    phaseMemo.set(id, p);
+    return p;
+  };
+
+  // Requirements, enriched with derived `phase`/`options` (IMPL §9), in declaration order.
+  /** @type {import('../eval/evaluator.js').RequirementDescriptor[]} */
+  const requirements = [];
+  /** @type {string[]} */
+  const capabilitiesUsed = [];
+  for (const [id, decl] of symbols) {
+    if (decl.kind !== 'require') continue;
+    const d = decl.descriptor;
+    const options = optionsOf(d);
+    /** @type {import('../eval/evaluator.js').RequirementDescriptor} */
+    const enriched = { ...d, phase: phaseOf(id, new Set()) };
+    if (options !== undefined) enriched.options = options;
+    requirements.push(enriched);
+    if (d.capability && !capabilitiesUsed.includes(d.capability))
+      capabilitiesUsed.push(d.capability);
+  }
+
+  // Execution plan: requirements grouped by phase, ordered by phase then declaration.
+  /** @type {Map<number, string[]>} */
+  const byPhase = new Map();
+  for (const r of requirements) {
+    const list = byPhase.get(/** @type {number} */ (r.phase)) ?? [];
+    list.push(r.id);
+    byPhase.set(/** @type {number} */ (r.phase), list);
+  }
+  const executionPlan = [...byPhase.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([phase, reqs]) => ({ phase, requirements: reqs }));
+
+  // Static metrics.
+  const deterministic = isDeterministic(ast);
+  const staticValues = computeStaticValues(ast, symbols, cfg);
+  const maxReqPhase = requirements.reduce(
+    (m, r) => Math.max(m, /** @type {number} */ (r.phase)),
+    0
+  );
+  const phaseCap = cfg.limits?.maxPhases ?? Number.POSITIVE_INFINITY;
+  const maxPhases = Math.min(maxReqPhase, phaseCap);
+  const worstCaseRequirements = requirements.reduce(
+    (m, r) => Math.max(m, pathReqCount(r.id, governing, reqIds, new Set())),
+    0
+  );
+
+  return {
+    analysisVersion: ANALYSIS_VERSION,
+    ast,
+    requirements,
+    requirementGraph: { edges },
+    executionPlan,
+    capabilitiesUsed,
+    staticValues,
+    deterministic,
+    streamability: streamabilityOf(ast),
+    potentialCycles,
+    maxPhases,
+    worstCaseRequirements,
+  };
+}
+
+/**
+ * Records the governing requirement ids for every `require` declared under conditional
+ * branches (the requirement-graph back-edges, IMPL §9).
+ * @param {import('../ast/nodes.js').Expr} expr @param {string[]} gov @param {Map<string, string[]>} governing
+ */
+function walkGraph(expr, gov, governing) {
+  if (!expr || typeof expr !== 'object') return;
+  const e = /** @type {any} */ (expr);
+  if (e.kind === 'Ternary') {
+    const condIds = collectRefIds(e.cond);
+    walkGraph(e.cond, gov, governing);
+    const inner = union(gov, condIds);
+    walkGraph(e.then, inner, governing);
+    walkGraph(e.else, inner, governing);
+    return;
+  }
+  if (e.kind === 'Call' && e.callee === 'require') {
+    let id;
+    try {
+      id = extractRequirement(e).id;
+    } catch {
+      id = undefined;
+    }
+    if (id) governing.set(id, union(governing.get(id) ?? [], gov));
+  }
+  for (const child of children(e)) walkGraph(child, gov, governing);
+}
+
+/**
+ * Longest chain of *requirement* dependencies ending at `id` (worst-case path cost, IMPL §9).
+ * @param {string} id @param {Map<string, string[]>} governing @param {Set<string>} reqIds @param {Set<string>} stack
+ * @returns {number}
+ */
+function pathReqCount(id, governing, reqIds, stack) {
+  if (stack.has(id)) return 1; // cycle guard
+  stack.add(id);
+  const gids = governing.get(id) ?? [];
+  let max = 0;
+  for (const g of gids) {
+    if (!reqIds.has(g)) continue;
+    const c = pathReqCount(g, governing, reqIds, stack);
+    if (c > max) max = c;
+  }
+  stack.delete(id);
+  return 1 + max;
+}
+
+/** Distinct option values from a requirement's `type.constraints.values` (IMPL §9). @param {any} d @returns {unknown[] | undefined} */
+function optionsOf(d) {
+  const values = d?.type?.constraints?.values;
+  return Array.isArray(values) ? values : undefined;
+}
+
+/** Collects identifier ids referenced by an expression: `Ref` names and inner `require` ids. @param {import('../ast/nodes.js').Expr} expr @returns {string[]} */
+function collectRefIds(expr) {
+  /** @type {string[]} */
+  const out = [];
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object') return;
+    if (e.kind === 'Ref') out.push(e.name);
+    else if (e.kind === 'Call' && e.callee === 'require') {
+      try {
+        out.push(extractRequirement(e).id);
+      } catch {
+        /* ignore malformed descriptor */
+      }
+    }
+    for (const child of children(e)) visit(child);
+  };
+  visit(expr);
+  return out;
+}
+
+/** @param {string[]} a @param {string[]} b @returns {string[]} */
+function union(a, b) {
+  const out = [...a];
+  for (const x of b) if (!out.includes(x)) out.push(x);
+  return out;
+}
+
+/**
+ * `true` iff the document uses no non-deterministic producer (`now()` or `fake.*`).
+ * v1 is conservative: since the normalized config always carries a clock, a fixed-clock
+ * exception is not distinguishable, so any `now`/`fake` use marks the document as
+ * non-deterministic (IMPL §9).
+ * @param {import('../ast/nodes.js').Document} ast @returns {boolean}
+ */
+function isDeterministic(ast) {
+  let deterministic = true;
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object') return;
+    if (isNondeterministicNode(e)) deterministic = false;
+    for (const child of children(e)) visit(child);
+  };
+  for (const node of ast.nodes) {
+    if (node.kind === 'Formula') visit(/** @type {any} */ (node).expr);
+    else if (node.kind === 'Macro') for (const a of /** @type {any} */ (node).args) visit(a);
+  }
+  return deterministic;
+}
+
+/**
+ * Evaluates the cold-resolvable formulas (pure, deterministic, no requirements) and
+ * collects their values keyed by slot index (IMPL §9). Pure: empty `resolved` environment.
+ * @param {import('../ast/nodes.js').Document} ast
+ * @param {ReturnType<typeof collectDeclarations>} symbols
+ * @param {import('../index.js').EngineConfig} cfg
+ * @returns {Record<string, import('../runtime/values.js').Value>}
+ */
+function computeStaticValues(ast, symbols, cfg) {
+  /** @type {Record<string, import('../runtime/values.js').Value>} */
+  const out = {};
+  let i = -1;
+  for (const node of ast.nodes) {
+    if (node.kind !== 'Formula') continue;
+    i += 1;
+    const expr = /** @type {any} */ (node).expr;
+    if (usesNondeterministic(expr)) continue;
+    /** @type {import('../eval/evaluator.js').EvalContext} */
+    const ctx = {
+      resolved: {},
+      symbols,
+      needs: new Map(),
+      config: cfg,
+      clock: cfg.clock ?? (() => new Date()),
+    };
+    const res = evaluate(expr, ctx);
+    if (res.kind === 'Ok' && ctx.needs.size === 0) out[String(i)] = res.value;
+  }
+  return out;
+}
+
+/** @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
+function usesNondeterministic(expr) {
+  let found = false;
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object' || found) return;
+    if (isNondeterministicNode(e)) found = true;
+    for (const child of children(e)) visit(child);
+  };
+  visit(expr);
+  return found;
+}
+
+/** A node that introduces non-determinism: `now()` or a `fake.*` library call. @param {any} e @returns {boolean} */
+function isNondeterministicNode(e) {
+  if (e.kind === 'Call' && e.callee === 'now') return true;
+  if (e.kind === 'Namespace' && e.ns === 'fake') return true;
+  return false;
+}
+
+/**
+ * Static streaming classification (IMPL §9). `full` when nothing rewrites emitted text;
+ * `buffered` when an aggregator or a backward-acting layout macro is present; `partial`
+ * when only forward-safe layout macros (`REMOVE_RIGHT`) appear.
+ * @param {import('../ast/nodes.js').Document} ast @returns {string}
+ */
+function streamabilityOf(ast) {
+  let backward = false;
+  let forward = false;
+  for (const node of ast.nodes) {
+    if (node.kind !== 'Macro') continue;
+    const name = /** @type {any} */ (node).name;
+    if (AGGREGATOR_MACROS.has(name) || BACKWARD_MACROS.has(name)) backward = true;
+    else if (name === 'REMOVE_RIGHT') forward = true;
+  }
+  if (backward) return Streamability.BUFFERED;
+  if (forward) return Streamability.PARTIAL;
+  return Streamability.FULL;
+}
+
+/** Child expressions of a node (mirror of the runtime walker). @param {any} e @returns {import('../ast/nodes.js').Expr[]} */
+function children(e) {
+  switch (e.kind) {
+    case 'Unary':
+      return [e.arg];
+    case 'Binary':
+      return [e.left, e.right];
+    case 'Ternary':
+      return [e.cond, e.then, e.else];
+    case 'Call':
+      return e.args;
+    case 'Method':
+      return [e.receiver, ...e.args];
+    case 'Namespace':
+      return e.args;
+    case 'Member':
+      return [e.receiver];
+    case 'ArrayLit':
+      return e.elements;
+    case 'ObjectLit':
+      return e.entries.map((/** @type {any} */ en) => en.value);
+    default:
+      return [];
+  }
 }
