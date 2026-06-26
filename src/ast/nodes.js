@@ -178,6 +178,8 @@ export const ExprKind = Object.freeze({
  * @property {Expr} cond  Condition expression; must evaluate to `bool`.
  * @property {Expr} then  Value when condition is true.
  * @property {Expr} else  Value when condition is false.
+ * @property {boolean} [nonExhaustiveMatch]  Non-normative: set on the outermost ternary of a
+ *   desugared `match` that has no `*` default arm. Read by `validate` (IMPL §3); ignored elsewhere.
  */
 
 /**

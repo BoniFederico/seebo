@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realEngine, PENDING } from '../helpers/index.js';
+import { realEngine } from '../helpers/index.js';
 
 // SPEC §2.3 — the documented analyze example: country (phase 1) gates city (phase 2).
 //
@@ -23,7 +23,7 @@ import { realEngine, PENDING } from '../helpers/index.js';
 //   requirementGraph.edges: [['country','city']]
 //   executionPlan: [{phase:1,['country']},{phase:2,['city']}]
 //   capabilitiesUsed: ['user']; deterministic: true; maxPhases: 2; worstCaseRequirements: 2
-test('SPEC §2.3 — analyze computes phases, graph and plan', PENDING, () => {
+test('SPEC §2.3 — analyze computes phases, graph and plan', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = [
     "${ require({ id:'country', capability:'user', label:'Country', type: array().constraints({ values:['IT','US'] }) }) }",
@@ -57,7 +57,7 @@ test('SPEC §2.3 — analyze computes phases, graph and plan', PENDING, () => {
 // IMPL Appendix B.1 — requirement in nested branches: phase(c) = 1 + max(phase(a),phase(b)).
 //   Input: ${ a == 'x' ? (b == 'y' ? require({id:'c',type:string(),capability:'user'}) : '') : '' }
 //   Expected: edges a→c and b→c; phase(c) = 2 (a,b unconditional); maxPhases ≥ 2.
-test('IMPL B.1 — nested-branch requirement phase', PENDING, () => {
+test('IMPL B.1 — nested-branch requirement phase', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template =
     "${ a == 'x' ? (b == 'y' ? require({id:'c', type:string(), capability:'user'}) : '') : '' }";
@@ -70,7 +70,7 @@ test('IMPL B.1 — nested-branch requirement phase', PENDING, () => {
 
 // SPEC §2.3 — staticValues: a fully pure formula is resolvable cold.
 //   Input: ${ 1 + 1 }   Expected: deterministic true; staticValues non-empty.
-test('SPEC §2.3 — staticValues holds cold-resolvable slots', PENDING, () => {
+test('SPEC §2.3 — staticValues holds cold-resolvable slots', () => {
   const engine = realEngine();
   const a = engine.analyze('${ 1 + 1 }');
   assert.equal(a.deterministic, true);

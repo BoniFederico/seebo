@@ -457,6 +457,14 @@ function parseMatch(ctx, subject) {
       else: elseExpr,
     };
   }
+
+  // Non-normative marker: a `match` without a `*` default arm is not provably exhaustive
+  // over an open domain (int/string/…). The marker is attached only in that case, so the
+  // exhaustive form's AST stays byte-identical; `validate` reads it to emit
+  // NON_EXHAUSTIVE_MATCH (IMPL §3 / B.3). It is ignored by every other phase.
+  if (defaultExpr === null && arms.length > 0) {
+    /** @type {any} */ (elseExpr).nonExhaustiveMatch = true;
+  }
   return elseExpr;
 }
 

@@ -97,12 +97,12 @@ test('SPEC §2.3 — malformed formula fails with SYNTAX_ERROR', async () => {
   assert.equal(r.diagnostics?.[0]?.code, 'SYNTAX_ERROR');
 });
 
-// Slice boundary — a bare identifier now PARSES (full parser → Ref), but the slice
-// evaluator does not evaluate references yet, so it fails at run time (not parse time).
-test('slice boundary — bare identifier parses but is not yet evaluable', async () => {
+// An undeclared identifier (no declaration anywhere, not provided) is a run-time
+// UNDECLARED_NAME error (static scope, SPEC §1.7).
+test('undeclared reference fails with UNDECLARED_NAME', async () => {
   const r = await render('${ nome }');
   assert.equal(r.status, Status.FAILED);
-  assert.equal(r.diagnostics?.[0]?.code, 'TYPE_ERROR_RUNTIME');
+  assert.equal(r.diagnostics?.[0]?.code, 'UNDECLARED_NAME');
   assert.equal(r.diagnostics?.[0]?.phase, 'run');
 });
 

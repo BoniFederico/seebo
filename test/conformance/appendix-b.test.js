@@ -13,14 +13,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realEngine, normalizeOutput, PENDING } from '../helpers/index.js';
+import { realEngine, normalizeOutput } from '../helpers/index.js';
 import { Status } from '../../src/run/run.js';
 
 // IMPL B.2 — a Need in a non-taken branch is NOT emitted (lazy evaluation, IMPL §5).
 //   Input: ${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }
 //   With resolved {flag:false}: status completed, output 'ok', pending [].
 //   With resolved {flag:true} and x absent: status waiting, pending [x].
-test('IMPL B.2 — need in non-taken branch is not emitted', PENDING, () => {
+test('IMPL B.2 — need in non-taken branch is not emitted', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = "${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }";
 
@@ -49,7 +49,7 @@ test('IMPL B.2 — need in non-taken branch is not emitted', PENDING, () => {
 //   Expected output:
 //     riga1
 //     V
-test('IMPL B.6 — layout macros: REMOVE_LINE and REMOVE_RIGHT', PENDING, async () => {
+test('IMPL B.6 — layout macros: REMOVE_LINE and REMOVE_RIGHT', async () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = ['riga1', '${ empty }@{REMOVE_LINE}', '${ x }@{REMOVE_RIGHT(2)}AB'].join('\n');
   const res = await engine.stebo({ template, values: { empty: '', x: 'V' } });

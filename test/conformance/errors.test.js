@@ -12,7 +12,7 @@ import { DiagnosticCode } from '../../src/util/errors.js';
 
 // SPEC §1.7/§1.10 — referencing an undeclared identifier is a static error.
 //   Input: ${ nome }   Expected: validate → [UNDECLARED_NAME], recoverable.
-test('SPEC §1.10 — UNDECLARED_NAME for unknown reference', PENDING, () => {
+test('SPEC §1.10 — UNDECLARED_NAME for unknown reference', () => {
   const engine = realEngine();
   const diags = engine.validate('${ nome }');
   assertHasCode(diags, DiagnosticCode.UNDECLARED_NAME);
@@ -22,7 +22,7 @@ test('SPEC §1.10 — UNDECLARED_NAME for unknown reference', PENDING, () => {
 // IMPL B.4 — a requirement citing an unregistered capability is a static error.
 //   Input: ${ require({ id:'x', type:string(), capability:'ghost' }) }
 //   Expected: validate → [UNKNOWN_CAPABILITY] with data.capability = 'ghost' (before any run).
-test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', PENDING, () => {
+test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', () => {
   const engine = realEngine(); // no capabilities registered
   const diags = engine.validate("${ require({ id:'x', type:string(), capability:'ghost' }) }");
   assertHasCode(diags, DiagnosticCode.UNKNOWN_CAPABILITY);
@@ -33,7 +33,7 @@ test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', PENDING, () 
 // IMPL B.3 — a non-exhaustive match (no `*`, non-exhaustive cases) is a static error.
 //   Input: ${ n match { 1 => 'one', 2 => 'two' } }   Expected: validate → [NON_EXHAUSTIVE_MATCH].
 //   With a `* => 'other'` arm added: no diagnostics.
-test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', PENDING, () => {
+test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const bad = engine.validate(
     "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two' } }"
@@ -48,7 +48,7 @@ test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', PENDING, () => {
 
 // SPEC §2.3 — a well-formed, fully-declared template yields no diagnostics.
 //   Input: ${ 1 + 2 }   Expected: validate → [].
-test('SPEC §2.3 — clean template has no diagnostics', PENDING, () => {
+test('SPEC §2.3 — clean template has no diagnostics', () => {
   const engine = realEngine();
   assertCodes(engine.validate('${ 1 + 2 }'), []);
 });
@@ -63,7 +63,7 @@ test('SPEC §2.3 — parse throws on malformed syntax', () => {
 // IMPL B.5 — cyclic inclusion is detected (statically by analyze, fatally by run/expand).
 //   templates: a → ABSORB('b'), b → ABSORB('a')
 //   Expected: status 'failed' with INCLUSION_CYCLE; analyze.potentialCycles non-empty.
-test('IMPL B.5 — INCLUSION_CYCLE on cyclic ABSORB', PENDING, async () => {
+test('IMPL B.5 — INCLUSION_CYCLE on cyclic ABSORB', async () => {
   const engine = realEngine();
   const templates = { a: "@{ABSORB('b')}", b: "@{ABSORB('a')}" };
   const res = await engine.stebo({ template: templates.a, templates });

@@ -3,17 +3,17 @@
  * `(State) → State`: synchronous, pure, NO I/O (IMPL §6.2). v1 uses strategy 1 — full
  * re-evaluation at every `run` (IMPL §6.4).
  *
- * v1 SLICE: `run` parses the template, walks the document nodes, evaluates each formula
- * with the slice evaluator and concatenates the emitted text. Comments are removed at
- * emission (SPEC §1.2). Parse errors and evaluation errors produce `status: 'failed'`
- * with diagnostics. Requirements/Needs are not part of the slice, so `waiting` does not
- * occur yet.
+ * `run` parses the template and evaluates the document with the suspendable evaluator
+ * ({@link ../eval/evaluator.js}). Comments are removed at emission (SPEC §1.2). Unmet
+ * requirements surface as `pending` Needs (`status: 'waiting'`); parse/eval errors produce
+ * `status: 'failed'`; otherwise `status: 'completed'` with `output`.
  */
 
 import { STATE_VERSION } from '../util/versions.js';
 import { SeeboError, DiagnosticCode, createDiagnostic } from '../util/errors.js';
+import { fromJs } from '../runtime/values.js';
 import { parse } from '../parser/index.js';
-import { evaluate, renderValue } from '../eval/evaluator.js';
+import { evaluateDocument } from '../eval/evaluator.js';
 
 export { STATE_VERSION };
 
@@ -54,10 +54,9 @@ export const Status = Object.freeze({
  */
 
 /**
- * Creates the initial state (SPEC §2.4), `status: 'running'`.
- *
- * NOTE (slice): `initialValues` are kept verbatim under `resolved` for forward
- * compatibility, but the slice has no references/requirements that read them.
+ * Creates the initial state (SPEC §2.4), `status: 'running'`. Raw `initialValues` are
+ * wrapped into typed values via {@link fromJs} (clarifications §7/§10) so they can be read
+ * by references and requirements; values that are already typed are kept as-is.
  *
  * @param {string} template
  * @param {Record<string, unknown>} [initialValues]
@@ -65,10 +64,16 @@ export const Status = Object.freeze({
  * @returns {PublicState}
  */
 export function start(template, initialValues, _config) {
+  /** @type {Record<string, import('../runtime/values.js').Value>} */
+  const resolved = {};
+  for (const [id, raw] of Object.entries(initialValues ?? {})) {
+    if (raw === undefined) continue;
+    resolved[id] = fromJs(raw);
+  }
   return {
     stateVersion: STATE_VERSION,
     template,
-    resolved: /** @type {Record<string, any>} */ ({ ...(initialValues ?? {}) }),
+    resolved,
     pending: [],
     phase: 0,
     status: Status.RUNNING,
@@ -92,43 +97,14 @@ export function run(state, config) {
     return fail(state, phase, toDiagnostic(e, 'parse'));
   }
 
-  let output = '';
-  /** @type {import('../eval/evaluator.js').RequirementDescriptor[]} */
-  const pending = [];
-
-  for (const node of doc.nodes) {
-    if (node.kind === 'Text') {
-      output += node.value;
-    } else if (node.kind === 'Comment') {
-      // removed at emission (SPEC §1.2)
-    } else if (node.kind === 'Formula') {
-      const res = evaluate(node.expr, { resolved: state.resolved }, config);
-      if (res.kind === 'Ok') {
-        output += renderValue(res.value, config?.locale);
-      } else if (res.kind === 'Susp') {
-        pending.push(res.need);
-      } else {
-        return fail(state, phase, res.diagnostic);
-      }
-    } else {
-      // Macro nodes are rejected by the slice parser; guard defensively.
-      return fail(
-        state,
-        phase,
-        createDiagnostic(DiagnosticCode.SYNTAX_ERROR, {
-          phase: 'run',
-          recoverable: false,
-          message: `unsupported node '${node.kind}' in v1 slice`,
-          position: node.position,
-        })
-      );
-    }
+  const r = evaluateDocument(doc, state.resolved, config);
+  if (r.status === 'failed') {
+    return { ...state, phase, status: Status.FAILED, pending: [], diagnostics: r.diagnostics };
   }
-
-  if (pending.length > 0) {
-    return { ...state, phase, status: Status.WAITING, pending, output: undefined };
+  if (r.status === 'waiting') {
+    return { ...state, phase, status: Status.WAITING, pending: r.pending, output: undefined };
   }
-  return { ...state, phase, status: Status.COMPLETED, pending: [], output };
+  return { ...state, phase, status: Status.COMPLETED, pending: [], output: r.output };
 }
 
 /**
