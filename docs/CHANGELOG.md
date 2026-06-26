@@ -46,4 +46,4 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
 - Intentionally out of scope for v1: a shipped `fake.*` library, `steboStream` streaming, and
   the `lazyParse`/`stream`/`objectPool` optimizations (accepted but inert).
 
-[0.1.0]: https://example.com/seebo/releases/tag/v0.1.0
+[0.1.0]: https://github.com/BoniFederico/seebo/releases/tag/v0.1.0

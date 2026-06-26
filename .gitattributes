@@ -1,0 +1,9 @@
+# Normalize line endings to LF in the repo and on checkout (cross-platform).
+# Keeps Prettier (`endOfLine: "lf"`) and CI (Linux) in agreement regardless of OS.
+* text=auto eol=lf
+
+# Explicit text types (defensive; the wildcard above already covers them).
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
