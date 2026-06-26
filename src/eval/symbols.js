@@ -11,17 +11,9 @@
 
 import { builder } from '../runtime/values.js';
 import { SeeboError, DiagnosticCode } from '../util/errors.js';
+import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
 
-const TYPE_NAMES = new Set([
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-]);
+const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
 
 /**
  * Memoized symbol tables keyed by AST identity. The table is a pure function of the AST and

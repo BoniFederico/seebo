@@ -321,7 +321,7 @@ export function isValue(x) {
     !!x &&
     typeof x === 'object' &&
     typeof (/** @type {any} */ (x).type) === 'string' &&
-    (/** @type {any} */ (x).type).length > 0 &&
+    /** @type {any} */ (x).type.length > 0 &&
     'value' in /** @type {any} */ (x) &&
     'format' in /** @type {any} */ (x) &&
     'constraints' in /** @type {any} */ (x)

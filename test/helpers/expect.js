@@ -1,10 +1,9 @@
 /**
  * @file Test harness: assertion utilities for comparing pipeline results, especially
- * diagnostics (IMPL Appendix A) and placeholder behavior.
+ * diagnostics (IMPL Appendix A).
  */
 
 import assert from 'node:assert/strict';
-import { NotImplementedError } from '../../src/util/errors.js';
 
 /**
  * Extracts the `code` of each diagnostic, in order.
@@ -34,15 +33,6 @@ export function assertHasCode(diagnostics, code) {
     codesOf(diagnostics).includes(code),
     `expected a diagnostic with code ${code}, got [${codesOf(diagnostics).join(', ')}]`
   );
-}
-
-/**
- * Asserts that calling `fn` throws a `NotImplementedError`. Useful to document, in a
- * passing test, that a v1 placeholder is still pending.
- * @param {() => unknown} fn
- */
-export function assertNotImplemented(fn) {
-  assert.throws(fn, NotImplementedError);
 }
 
 /**

@@ -47,7 +47,7 @@ test('POLICY_FORBIDDEN when a type is not in policy.allowedTypes', () => {
   const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
   assert.deepEqual(d?.data, { kind: 'type', name: 'int' });
   // An allowed type produces no policy diagnostic.
-  assert.ok(!codesOf(engine.validate("${ string(1) }")).includes(DiagnosticCode.POLICY_FORBIDDEN));
+  assert.ok(!codesOf(engine.validate('${ string(1) }')).includes(DiagnosticCode.POLICY_FORBIDDEN));
 });
 
 test('POLICY_FORBIDDEN when a function is not in policy.allowedFunctions', () => {

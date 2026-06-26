@@ -16,21 +16,18 @@
  */
 
 import { EngineConfigError, DiagnosticCode } from '../util/errors.js';
-import { RESERVED_WORDS } from '../index.js';
+import {
+  RESERVED_WORDS,
+  BUILTIN_TYPE_NAMES,
+  BUILTIN_PRODUCER_NAMES,
+  BUILTIN_FORMS,
+  BUILTIN_MACRO_NAMES,
+} from '../util/vocabulary.js';
 
 /** Builtin producer names that occupy the shared producer namespace (SPEC §1.5). */
-const BUILTIN_PRODUCERS = ['now', 'date', 'require', 'var'];
+const BUILTIN_PRODUCERS = [...BUILTIN_PRODUCER_NAMES, ...BUILTIN_FORMS];
 /** Builtin type names (also producers) in the shared namespace (SPEC §1.3/§1.5). */
-const BUILTIN_TYPES = ['int', 'float', 'bool', 'string', 'datetime', 'duration', 'object', 'array'];
-/** Builtin macro names occupying the macro namespace (SPEC §1.8). */
-const BUILTIN_MACRO_NAMES = [
-  'ABSORB',
-  'MERGE',
-  'COLLAPSE',
-  'REMOVE_LINE',
-  'REMOVE_LEFT',
-  'REMOVE_RIGHT',
-];
+const BUILTIN_TYPES = BUILTIN_TYPE_NAMES;
 
 /**
  * Implementation of a custom function (producer or transformer), SPEC §2.6.

@@ -11,17 +11,10 @@
  * This guarantees `validate` only flags violations it can prove, never false positives.
  */
 
+import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
+
 /** The base Seebo type names, also usable as producers/builders (SPEC §1.3/§1.5). */
-export const TYPE_NAMES = new Set([
-  'int',
-  'float',
-  'bool',
-  'string',
-  'datetime',
-  'duration',
-  'object',
-  'array',
-]);
+export const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
 
 /**
  * A statically inferred type: a base type, or `'unknown'` when not provable.

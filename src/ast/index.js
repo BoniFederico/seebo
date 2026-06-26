@@ -1,10 +1,9 @@
 /**
- * @file AST barrel: re-exports the node contract ({@link ./nodes.js}) and the AST
- * version, plus node factories (v1 placeholders).
+ * @file AST barrel: re-exports the node contract ({@link ./nodes.js}), the AST version, and
+ * the node factories used to build documents programmatically.
  */
 
 import { AST_VERSION } from '../util/versions.js';
-import { NotImplementedError } from '../util/errors.js';
 
 export { AST_VERSION };
 export { NodeKind, ExprKind } from './nodes.js';
@@ -19,11 +18,13 @@ export function createDocument(nodes = []) {
 }
 
 /**
- * Generic node factory (v1 placeholder).
- * @param {string} _kind
- * @param {Record<string, unknown>} [_props]
- * @returns {never}
+ * Generic node factory: tags `props` with `kind` to produce a node/expression record matching
+ * the {@link ./nodes.js} contract. The parser builds its nodes inline; this is for hosts that
+ * assemble an AST programmatically.
+ * @param {string} kind  One of {@link NodeKind} / {@link ExprKind}.
+ * @param {Record<string, unknown>} [props]  Remaining node fields (e.g. `position`, `value`).
+ * @returns {import('./nodes.js').Node | import('./nodes.js').Expr}
  */
-export function createNode(_kind, _props) {
-  throw new NotImplementedError('ast.createNode');
+export function createNode(kind, props = {}) {
+  return /** @type {any} */ ({ kind, ...props });
 }
