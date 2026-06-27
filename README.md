@@ -31,6 +31,11 @@ Everything is typed (`int`, `float`, `bool`, `string`, `datetime`, `duration`, `
 `constraints`. Missing data declared via `require(...)` / capability sugar becomes a `Need`
 that suspends evaluation instead of throwing.
 
+A template can also declare external **effects** with `action({...})` (SPEC §2.8). The pure core
+only _prepares_ an action plan (`run(state).actions`); execution is explicit and host-driven via
+the `seebo/actions` subpath — `import { executeActionPlan } from 'seebo/actions'`. See
+[`docs/ACTIONS.md`](docs/ACTIONS.md).
+
 ## Requirements
 
 - **Node.js ≥ 20** (uses `node:test` and native ESM).
@@ -148,6 +153,7 @@ See [`docs/SECURITY.md`](docs/SECURITY.md) for the threat model and policy contr
 
 - [`docs/USAGE.md`](docs/USAGE.md) — usage, extensibility, realistic examples, common errors, debugging.
 - [`docs/API.md`](docs/API.md) — the public API surface (engine methods, `define*`, config, constants).
+- [`docs/ACTIONS.md`](docs/ACTIONS.md) — the `action(...)` effect construct and the `seebo/actions` execution layer.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the pipeline and module responsibilities.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, limits, capability policy.
 - [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — benchmarks and the opt-in `astCache`.

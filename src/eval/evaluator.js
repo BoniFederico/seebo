@@ -40,6 +40,7 @@ import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
 import { collectDeclarations, extractRequirement } from './symbols.js';
 import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
+import { buildActionDescriptor } from '../actions/plan.js';
 
 /** Evaluation outcome tags (SPEC §1.6, IMPL §5). @type {Readonly<Record<string,string>>} */
 export const ResultKind = Object.freeze({ OK: 'Ok', SUSP: 'Susp', ERR: 'Err' });
@@ -85,6 +86,7 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @property {Record<string, unknown>} resolved   Satisfied values by id (Value or raw JS).
  * @property {Map<string, { kind: string, descriptor: RequirementDescriptor }>} symbols
  * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
+ * @property {Map<string, import('../actions/contracts.js').ActionDescriptor>} [actions]  Active action declarations (by id), in reach order.
  * @property {import('../index.js').EngineConfig} [config]
  * @property {() => Date} clock
  * @property {number} [steps]  Evaluator step counter for the current pass (IMPL §13).
@@ -100,7 +102,7 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @param {import('../ast/nodes.js').Document} ast
  * @param {Record<string, unknown>} resolved
  * @param {import('../index.js').EngineConfig} [config]
- * @returns {{ status: 'completed'|'waiting'|'failed', output?: string, pending: RequirementDescriptor[], diagnostics?: import('../util/errors.js').Diagnostic[] }}
+ * @returns {{ status: 'completed'|'waiting'|'failed', output?: string, pending: RequirementDescriptor[], actions: import('../actions/contracts.js').ActionPlan, diagnostics?: import('../util/errors.js').Diagnostic[] }}
  */
 export function evaluateDocument(ast, resolved, config) {
   /** @type {EvalContext} */
@@ -108,6 +110,7 @@ export function evaluateDocument(ast, resolved, config) {
     resolved: resolved ?? {},
     symbols: collectDeclarations(ast),
     needs: new Map(),
+    actions: new Map(),
     config,
     clock: config?.clock ?? (() => new Date()),
     steps: 0,
@@ -130,14 +133,20 @@ export function evaluateDocument(ast, resolved, config) {
       const res = evaluate(/** @type {any} */ (node).expr, ctx);
       if (res.kind === 'Ok') output += toText(res.value, config?.locale, registryOf(ctx));
       else if (res.kind === 'Err') {
-        return { status: 'failed', pending: [], diagnostics: [res.diagnostic] };
+        return {
+          status: 'failed',
+          pending: [],
+          actions: actionPlan(ctx),
+          diagnostics: [res.diagnostic],
+        };
       }
       // Susp: the Need is recorded in ctx.needs; the slot stays a hole this pass.
     }
   }
 
+  const actions = actionPlan(ctx);
   const pending = [...ctx.needs.values()];
-  if (pending.length > 0) return { status: 'waiting', pending };
+  if (pending.length > 0) return { status: 'waiting', pending, actions };
 
   // Output size limit (SPEC §1.11, IMPL §13): guard against runaway documents. Measured in
   // UTF-8 bytes to match the normative "maxOutputBytes" unit.
@@ -146,6 +155,7 @@ export function evaluateDocument(ast, resolved, config) {
     return {
       status: 'failed',
       pending: [],
+      actions,
       diagnostics: [
         createDiagnostic(DiagnosticCode.OUTPUT_LIMIT_EXCEEDED, {
           severity: 'error',
@@ -157,7 +167,12 @@ export function evaluateDocument(ast, resolved, config) {
       ],
     };
   }
-  return { status: 'completed', output, pending: [] };
+  return { status: 'completed', output, pending: [], actions };
+}
+
+/** Materializes the collected action descriptors in reach (document) order. @param {EvalContext} ctx @returns {import('../actions/contracts.js').ActionPlan} */
+function actionPlan(ctx) {
+  return ctx.actions ? [...ctx.actions.values()] : [];
 }
 
 /** UTF-8 byte length of a string without allocating a Buffer for the common ASCII case. @param {string} s @returns {number} */
@@ -448,6 +463,7 @@ function evalCall(e, ctx) {
     return resolveRequirement(descriptor, ctx);
   }
   if (e.callee === 'var') return resolveRef(varName(e), ctx, e);
+  if (e.callee === 'action') return evalAction(e, ctx);
   if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
   if (e.callee === 'date') return evalDate(e, ctx);
   if (TYPE_NAMES.has(e.callee)) {
@@ -489,6 +505,109 @@ function evalCall(e, ctx) {
   return err(DiagnosticCode.UNKNOWN_FUNCTION, e, `unknown function '${e.callee}'`, {
     name: e.callee,
   });
+}
+
+/**
+ * Evaluates an `action({...})` declaration (SPEC §2.8). This is an **effect declaration**, not
+ * a value: it records an {@link import('../actions/contracts.js').ActionDescriptor} into
+ * `ctx.actions` and emits the empty string into the document. The pure core never executes the
+ * effect — only `seebo/actions` does. Reachability is inherited from the surrounding lazy
+ * operators (a gated `action` is simply never evaluated), giving "active actions only".
+ *
+ * Blocking: when the action's `input` references an unresolved requirement, evaluating the
+ * input suspends; the `Need` is still recorded (so the normal suspend/resume flow drives it)
+ * and the descriptor is recorded with `status: 'blocked'` and the resolved-so-far input.
+ *
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @returns {EvalResult}
+ */
+function evalAction(e, ctx) {
+  const obj = e.args[0];
+  if (!obj || obj.kind !== 'ObjectLit') {
+    return err(DiagnosticCode.SYNTAX_ERROR, e, 'action(...) expects a descriptor object');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const fields = {};
+  let blockedNeed = null;
+  for (const entry of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
+    if (entry.key === '__proto__') continue;
+    if (entry.key === 'input') {
+      const built = evalActionInput(entry.value, ctx);
+      if (built.error) return built.error;
+      fields.input = built.value;
+      if (built.blocked) blockedNeed = blockedNeed ?? built.blocked;
+      continue;
+    }
+    const v = evaluate(entry.value, ctx);
+    if (v.kind === 'Err') return v;
+    if (v.kind === 'Susp') {
+      blockedNeed = blockedNeed ?? v.need;
+      continue; // descriptor field unresolved → action is blocked, but keep collecting
+    }
+    fields[entry.key] = v.value.value;
+  }
+
+  const defaultEnvironment = /** @type {any} */ (ctx.config)?.policy?.action?.defaultEnvironment;
+  let descriptor;
+  try {
+    descriptor = buildActionDescriptor(fields, {
+      blocked: blockedNeed !== null,
+      defaultEnvironment,
+      diagnostics: blockedNeed
+        ? [
+            createDiagnostic(DiagnosticCode.CONSTRAINT_VIOLATION, {
+              severity: 'info',
+              phase: 'run',
+              recoverable: true,
+              message: `action is blocked on requirement '${blockedNeed.id}'`,
+              data: { requirement: blockedNeed.id },
+            }),
+          ]
+        : undefined,
+    });
+  } catch (ex) {
+    return errFrom(ex, e);
+  }
+
+  if (ctx.actions) {
+    // Document order via insertion; a later identical id keeps the first (duplicate detection
+    // is reported separately by analyze/validate/executor).
+    if (!ctx.actions.has(descriptor.id)) ctx.actions.set(descriptor.id, descriptor);
+  }
+  // An action emits nothing into the rendered document.
+  return ok(makeString(''));
+}
+
+/**
+ * Evaluates an action's `input` object, accumulating resolved entries and recording the first
+ * suspending requirement so the action can be marked blocked while the Need still flows out.
+ * @param {import('../ast/nodes.js').Expr} expr @param {EvalContext} ctx
+ * @returns {{ value: Record<string, unknown>, blocked: RequirementDescriptor | null, error: Err | null }}
+ */
+function evalActionInput(expr, ctx) {
+  const e = /** @type {any} */ (expr);
+  if (e.kind !== 'ObjectLit') {
+    const v = evaluate(expr, ctx);
+    if (v.kind === 'Err') return { value: {}, blocked: null, error: v };
+    if (v.kind === 'Susp') return { value: {}, blocked: v.need, error: null };
+    // Non-object input is rejected later by normalizeActionInput.
+    return { value: /** @type {any} */ (v.value.value), blocked: null, error: null };
+  }
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  /** @type {RequirementDescriptor | null} */
+  let blocked = null;
+  for (const entry of e.entries) {
+    if (entry.key === '__proto__') continue;
+    const v = evaluate(entry.value, ctx);
+    if (v.kind === 'Err') return { value: out, blocked, error: v };
+    if (v.kind === 'Susp') {
+      blocked = blocked ?? v.need;
+      continue; // omit unresolved field from the partial input
+    }
+    out[entry.key] = v.value.value;
+  }
+  return { value: out, blocked, error: null };
 }
 
 /** @param {import('../ast/nodes.js').MethodNode} e @param {EvalContext} ctx */

@@ -42,6 +42,7 @@ export const Status = Object.freeze({
  * @property {number} phase  Monotonically increasing step counter; starts at `0`, incremented by each {@link run} call.
  * @property {StatusValue} status  Current execution status; see {@link Status}.
  * @property {string} [output]  Rendered text; present only when `status === 'completed'`.
+ * @property {import('../actions/contracts.js').ActionPlan} [actions]  Action plan: all active action declarations prepared this step (SPEC §2.8). Additive; empty when the template declares none.
  * @property {import('../util/errors.js').Diagnostic[]} [diagnostics]  Diagnostics collected during the last step; present only when `status === 'failed'`.
  */
 
@@ -116,13 +117,28 @@ export function run(state, config) {
   }
 
   const r = evaluateDocument(doc, state.resolved, config);
+  const actions = r.actions ?? [];
   if (r.status === 'failed') {
-    return { ...state, phase, status: Status.FAILED, pending: [], diagnostics: r.diagnostics };
+    return {
+      ...state,
+      phase,
+      status: Status.FAILED,
+      pending: [],
+      actions,
+      diagnostics: r.diagnostics,
+    };
   }
   if (r.status === 'waiting') {
-    return { ...state, phase, status: Status.WAITING, pending: r.pending, output: undefined };
+    return {
+      ...state,
+      phase,
+      status: Status.WAITING,
+      pending: r.pending,
+      actions,
+      output: undefined,
+    };
   }
-  return { ...state, phase, status: Status.COMPLETED, pending: [], output: r.output };
+  return { ...state, phase, status: Status.COMPLETED, pending: [], actions, output: r.output };
 }
 
 /**

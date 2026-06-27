@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Actions (`action(...)`, SPEC §2.8).** A declarative **effect declaration** prepared by the
+  pure core and executed only through the new `seebo/actions` subpath. `${ action({...}) }` is
+  collected into an **action plan** (`run(state).actions`, `analyze(template).actions`) when its
+  subtree is reachable; an unresolved input requirement marks the action `blocked` while its `Need`
+  still flows through the normal suspend/resume loop. The pure core never executes an action — a
+  conformance test enforces that `src/eval`/`src/run`/`src/analyze`/`src/validate` never import the
+  execution layer.
+- **`seebo/actions` execution layer.** `executeAction`, `executeActionPlan`, `dryRunAction`,
+  `dryRunActionPlan`, `compensateAction`, `compensateActionPlan`, plus the `ActionStatus`,
+  `ActionErrorCode`, `ActionEventType`, `PlanStatus` enums and the pure `computeIdempotencyKey` /
+  `decideAction` / `checkPermissions` helpers. Features: confirmation, dry-run, deterministic
+  idempotency keys (SHA-256 over `{id,type,environment,input}`), retry (with `nonRetryable`),
+  per-action permissions/policy (fail-closed), hook-based audit + redaction, and handler-provided
+  compensation. Execution APIs return structured `ActionReceipt`s and never throw.
+- **`defineAction` / `engine.defineAction`.** Register host action handlers
+  (`execute`/`dryRun?`/`compensate?`/`validate?`) in their own namespace, separate from
+  capabilities. New config field `actions` and policy field `policy.action`.
+- **`analyze`/`validate` integration.** `analyze().actions` lists declared actions (document order,
+  best-effort metadata, duplicate flags); `validate` adds `INVALID_ACTION`, `DUPLICATE_ACTION_ID`
+  and `UNKNOWN_ACTION_TYPE` and enforces action policy.
+- **Docs & CI.** New `docs/ACTIONS.md`; CI now verifies the `seebo/actions` subpath export
+  resolves.
+
+### Notes
+
+- Fully **additive and backward-compatible**: existing templates and APIs are unchanged. `action`
+  is now a reserved word; results gain an additive `actions` field. New diagnostic `code`s are
+  non-breaking per IMPL §14.
+
 ## [0.1.0] — 2026-06-26
 
 First implemented release of **Seebo** (Suspendable Evaluation Engine Built with Opus).

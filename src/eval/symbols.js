@@ -108,6 +108,78 @@ export function extractRequirement(call) {
 }
 
 /**
+ * Statically extracts the descriptor of an `action({...})` call (SPEC §2.8), reading only the
+ * fields that are syntactically constant. Used by `analyze`/`validate`; the runtime evaluator
+ * evaluates the descriptor fully (its `input` may depend on requirements). Dynamic fields are
+ * reported via `dynamic` so callers can mark best-effort metadata.
+ *
+ * @param {import('../ast/nodes.js').CallNode} call
+ * @returns {{ id: string | undefined, type: string | undefined, environment: string | undefined, confirm: boolean, dryRun: boolean, permissions: string[], dynamicInput: boolean }}
+ */
+export function extractActionStatic(call) {
+  const obj = call.args[0];
+  if (!obj || obj.kind !== 'ObjectLit') {
+    throw syntax('action(...) expects a descriptor object', call);
+  }
+  const entries = /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries;
+  /** @type {Record<string, import('../ast/nodes.js').Expr>} */
+  const byKey = {};
+  for (const e of entries) if (e.key !== '__proto__') byKey[e.key] = e.value;
+
+  return {
+    id: literalString(byKey.id),
+    type: literalString(byKey.type),
+    environment: literalString(byKey.environment),
+    confirm: literalBool(byKey.confirm) === true,
+    dryRun: literalBool(byKey.dryRun) === true,
+    permissions: literalStringArray(byKey.permissions),
+    dynamicInput: byKey.input ? !isConstant(byKey.input) : false,
+  };
+}
+
+/** @param {import('../ast/nodes.js').Expr | undefined} expr @returns {string | undefined} */
+function literalString(expr) {
+  const e = /** @type {any} */ (expr);
+  return e && e.kind === 'Lit' && e.type === 'string' ? /** @type {string} */ (e.value) : undefined;
+}
+
+/** @param {import('../ast/nodes.js').Expr | undefined} expr @returns {boolean | undefined} */
+function literalBool(expr) {
+  const e = /** @type {any} */ (expr);
+  return e && e.kind === 'Lit' && e.type === 'bool' ? /** @type {boolean} */ (e.value) : undefined;
+}
+
+/** @param {import('../ast/nodes.js').Expr | undefined} expr @returns {string[]} */
+function literalStringArray(expr) {
+  const e = /** @type {any} */ (expr);
+  if (!e || e.kind !== 'ArrayLit') return [];
+  /** @type {string[]} */
+  const out = [];
+  for (const el of e.elements) {
+    const s = literalString(el);
+    if (s !== undefined) out.push(s);
+  }
+  return out;
+}
+
+/** `true` when an expression is a compile-time constant (no refs/requires/calls). @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
+function isConstant(expr) {
+  const e = /** @type {any} */ (expr);
+  switch (e.kind) {
+    case 'Lit':
+      return true;
+    case 'ArrayLit':
+      return e.elements.every(isConstant);
+    case 'ObjectLit':
+      return e.entries.every((/** @type {any} */ en) => isConstant(en.value));
+    case 'Unary':
+      return e.op === '-' && isConstant(e.arg);
+    default:
+      return false;
+  }
+}
+
+/**
  * Extracts a var declaration from a `var('name', type?)` call (SPEC §1.7).
  * @param {import('../ast/nodes.js').CallNode} call
  */

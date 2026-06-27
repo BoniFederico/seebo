@@ -108,6 +108,30 @@ Capabilities are the only path to sensitive data, so their use is governed by `p
 A provider value is always validated against the requirement's declared type/constraints; an
 invalid value never enters `resolved` (`CAPABILITY_INVALID_VALUE`).
 
+## Action effects (SPEC §2.8)
+
+Actions are the only path to outbound **effects**, and they are held to a stricter separation than
+capabilities: the **pure core never executes them**. `run`/`analyze`/`validate`/preview only
+prepare an `ActionPlan`; effects happen solely through the explicit `seebo/actions` layer.
+
+- **No execution in the core.** The pure modules (`src/eval`, `src/run`, `src/analyze`,
+  `src/validate`) never import the execution layer (`src/actions/execute.js`) — a conformance test
+  enforces this. A handler cannot run during parse/validate/analyze/preview/run.
+- **Fail-closed policy.** `policy.action` controls allow/deny by type, environment rules, and
+  forced confirmation. An action type absent from a present `allowedActions`, or an environment
+  outside a present `allowedEnvironments`, is **denied**. Denials never run the handler and emit
+  `action.policy_denied`.
+- **Confirmation & permissions.** An action requiring confirmation cannot run unless its id is in
+  `confirmedActions`. Required permissions (descriptor + handler) are checked against the actor's
+  granted permissions before any effect; a shortfall is `PERMISSION_DENIED`.
+- **Unknown handler.** An action whose `type` has no registered handler can never execute
+  (`HANDLER_NOT_FOUND`).
+- **Input sanitization.** Action `input` is deep-sanitized like every value: `__proto__` dropped,
+  non-JSON/cyclic rejected, depth/size bounded — no prototype pollution through an action.
+- **Idempotency & redaction.** A stable idempotency key (SHA-256 over `{id,type,environment,input}`)
+  is passed to handlers and constant across retries; the `redact` hook masks inputs/outputs before
+  they reach receipts/audit. Audit is hook-based — the core never logs to the console.
+
 ## Out of scope (v1)
 
 - **Per-capability `timeoutMs` of synchronous providers.** The timeout bounds awaited promises;

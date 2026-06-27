@@ -58,6 +58,9 @@ const BUILTIN_TYPES = BUILTIN_TYPE_NAMES;
  * @property {(name: string) => boolean} hasCapability  Whether a capability is registered.
  * @property {(name: string) => import('../index.js').TypeExtensionDef | undefined} getType  Custom type descriptor by name.
  * @property {(name: string) => import('../index.js').MacroExtensionDef | undefined} getMacro  Custom macro descriptor by name.
+ * @property {(type: string) => import('../actions/contracts.js').ActionHandler | undefined} getAction  Action handler by type (SPEC §2.8).
+ * @property {(type: string) => boolean} hasAction  Whether an action handler type is registered.
+ * @property {ReadonlyArray<string>} actionNames  Registered action handler type names.
  * @property {ReadonlyArray<string>} libraryNames  Registered library namespaces.
  * @property {Readonly<Record<string, 'aggregator'|'layout'>>} macroFamilies  Custom macro → family.
  */
@@ -87,6 +90,8 @@ export function createRegistry(config = {}) {
   const macros = new Map();
   /** @type {Record<string, 'aggregator'|'layout'>} */
   const macroFamilies = {};
+  /** @type {Map<string, import('../actions/contracts.js').ActionHandler>} */
+  const actions = new Map();
 
   /** Reserves a name in the shared producer namespace. @param {string} name @param {string} kind */
   const reserveProducer = (name, kind) => {
@@ -150,6 +155,26 @@ export function createRegistry(config = {}) {
 
   const capabilityNames = new Set(Object.keys(config.capabilities ?? {}));
 
+  // Action handlers (SPEC §2.8): their own namespace, keyed by dotted action `type`. They are
+  // NOT in the producer/capability namespace and are never invoked by the pure evaluator —
+  // only by `seebo/actions`. A handler must carry an `execute` function.
+  for (const a of asArray(config.actions)) {
+    const def = /** @type {any} */ (a);
+    if (!def || typeof def.type !== 'string' || def.type.length === 0) {
+      throw new EngineConfigError('an action handler requires a non-empty string type', {
+        code: DiagnosticCode.NAME_CONFLICT,
+      });
+    }
+    if (typeof def.handler?.execute !== 'function') {
+      throw new EngineConfigError(`action '${def.type}' requires an 'execute' function`, {
+        code: DiagnosticCode.NAME_CONFLICT,
+        data: { type: def.type },
+      });
+    }
+    if (actions.has(def.type)) throw nameConflict(def.type, 'action');
+    actions.set(def.type, def.handler);
+  }
+
   return Object.freeze({
     getProducer: (name) => producers.get(name),
     getTransformer: (type, name) => transformers.get(transformerKey(type, name)),
@@ -158,6 +183,9 @@ export function createRegistry(config = {}) {
     hasCapability: (name) => capabilityNames.has(name),
     getType: (name) => types.get(name),
     getMacro: (name) => macros.get(name),
+    getAction: (type) => actions.get(type),
+    hasAction: (type) => actions.has(type),
+    actionNames: Object.freeze([...actions.keys()]),
     libraryNames: Object.freeze([...libraries.keys()]),
     macroFamilies: Object.freeze({ ...macroFamilies }),
   });

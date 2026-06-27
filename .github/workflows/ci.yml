@@ -42,5 +42,16 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Verify public subpath exports resolve
+        # Guards the `seebo/actions` subpath export so a broken `exports` map fails CI loudly.
+        run: |
+          node --input-type=module -e "
+            const root = await import('seebo');
+            const actions = await import('seebo/actions');
+            if (typeof root.createEngine !== 'function') throw new Error('seebo: createEngine missing');
+            if (typeof actions.executeActionPlan !== 'function') throw new Error('seebo/actions: executeActionPlan missing');
+            console.log('subpath exports OK');
+          "
+
       - name: Bench smoke
         run: npm run bench:smoke
