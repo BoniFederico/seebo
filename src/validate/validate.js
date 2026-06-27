@@ -25,7 +25,7 @@
  */
 
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement } from '../eval/symbols.js';
+import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
 import {
   TYPE_NAMES,
@@ -73,6 +73,9 @@ export function validate(template, config) {
   const allowedFunctions = cfg.policy?.allowedFunctions;
   const libraries = new Set(cfg.libraries ?? []);
   const registry = /** @type {any} */ (cfg).registry;
+  const actionPolicy = /** @type {any} */ (cfg.policy)?.action ?? {};
+  /** Action ids seen so far, for duplicate detection across the document. @type {Set<string>} */
+  const seenActionIds = new Set();
 
   /**
    * Emits {@link DiagnosticCode.POLICY_FORBIDDEN} when an allow-list is present and excludes
@@ -197,6 +200,11 @@ export function validate(template, config) {
     if (callee === 'var') {
       for (const arg of call.args) walk(arg);
       return declaredCallType(call);
+    }
+    if (callee === 'action') {
+      validateAction(call);
+      for (const arg of call.args) walk(arg);
+      return 'string'; // an action declaration emits the empty string
     }
     if (TYPE_NAMES.has(callee)) {
       checkPolicy(allowedTypes, 'type', callee, call);
@@ -362,11 +370,195 @@ export function validate(template, config) {
     }
   }
 
+  /**
+   * Validates an `action({...})` declaration statically (SPEC §2.8): required fields, duplicate
+   * id, unknown/forbidden type, invalid flags/retry/environment. Best-effort: dynamic fields are
+   * deferred to run/execution time.
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validateAction(call) {
+    const obj = call.args[0];
+    if (!obj || obj.kind !== 'ObjectLit') {
+      diagnostics.push(
+        diag(DiagnosticCode.INVALID_ACTION, call, 'action(...) expects a descriptor object')
+      );
+      return;
+    }
+    /** @type {Record<string, import('../ast/nodes.js').Expr>} */
+    const byKey = {};
+    for (const e of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
+      if (e.key !== '__proto__') byKey[e.key] = e.value;
+    }
+
+    let info;
+    try {
+      info = extractActionStatic(call);
+    } catch {
+      diagnostics.push(diag(DiagnosticCode.INVALID_ACTION, call, 'malformed action descriptor'));
+      return;
+    }
+
+    if (byKey.id === undefined) {
+      diagnostics.push(diag(DiagnosticCode.INVALID_ACTION, call, "action(...) needs an 'id'"));
+    } else if (info.id === undefined && isLiteralKind(byKey.id)) {
+      diagnostics.push(
+        diag(DiagnosticCode.INVALID_ACTION, byKey.id, "action 'id' must be a string")
+      );
+    }
+    if (byKey.type === undefined) {
+      diagnostics.push(diag(DiagnosticCode.INVALID_ACTION, call, "action(...) needs a 'type'"));
+    } else if (info.type === undefined && isLiteralKind(byKey.type)) {
+      diagnostics.push(
+        diag(DiagnosticCode.INVALID_ACTION, byKey.type, "action 'type' must be a string")
+      );
+    }
+
+    // Duplicate id (only statically detectable for literal ids).
+    if (info.id !== undefined) {
+      if (seenActionIds.has(info.id)) {
+        diagnostics.push(
+          diag(DiagnosticCode.DUPLICATE_ACTION_ID, call, `duplicate action id '${info.id}'`, {
+            id: info.id,
+          })
+        );
+      }
+      seenActionIds.add(info.id);
+    }
+
+    // Unknown/forbidden type against registered handlers and action policy.
+    if (info.type !== undefined) {
+      if (registry?.hasAction && !registry.hasAction(info.type)) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.UNKNOWN_ACTION_TYPE,
+            byKey.type ?? call,
+            `no handler registered for action type '${info.type}'`,
+            {
+              type: info.type,
+            }
+          )
+        );
+      }
+      if (
+        Array.isArray(actionPolicy.deniedActions) &&
+        actionPolicy.deniedActions.includes(info.type)
+      ) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.POLICY_FORBIDDEN,
+            call,
+            `action type '${info.type}' is denied by policy`,
+            {
+              kind: 'action',
+              name: info.type,
+            }
+          )
+        );
+      } else if (
+        Array.isArray(actionPolicy.allowedActions) &&
+        !actionPolicy.allowedActions.includes(info.type)
+      ) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.POLICY_FORBIDDEN,
+            call,
+            `action type '${info.type}' is not in allowedActions`,
+            {
+              kind: 'action',
+              name: info.type,
+            }
+          )
+        );
+      }
+    }
+
+    // Flag/retry shape checks where statically present.
+    checkActionFlag(byKey.confirm, 'confirm', 'bool');
+    checkActionFlag(byKey.dryRun, 'dryRun', 'bool');
+    checkActionRetry(byKey.retry);
+
+    // Environment against policy allow-list (only for literal environments).
+    if (
+      info.environment !== undefined &&
+      Array.isArray(actionPolicy.allowedEnvironments) &&
+      !actionPolicy.allowedEnvironments.includes(info.environment)
+    ) {
+      diagnostics.push(
+        diag(
+          DiagnosticCode.POLICY_FORBIDDEN,
+          byKey.environment ?? call,
+          `environment '${info.environment}' is not allowed by policy`,
+          {
+            kind: 'environment',
+            name: info.environment,
+          }
+        )
+      );
+    }
+  }
+
+  /** @param {import('../ast/nodes.js').Expr | undefined} expr @param {string} name @param {'bool'} kind */
+  function checkActionFlag(expr, name, kind) {
+    const e = /** @type {any} */ (expr);
+    if (e && e.kind === 'Lit' && e.type !== kind) {
+      diagnostics.push(
+        diag(DiagnosticCode.INVALID_ACTION, expr, `action '${name}' must be a ${kind}`)
+      );
+    }
+  }
+
+  /** @param {import('../ast/nodes.js').Expr | undefined} expr */
+  function checkActionRetry(expr) {
+    const e = /** @type {any} */ (expr);
+    if (!e) return;
+    if (e.kind !== 'ObjectLit') {
+      diagnostics.push(
+        diag(DiagnosticCode.INVALID_ACTION, expr, "action 'retry' must be an object")
+      );
+      return;
+    }
+    for (const entry of e.entries) {
+      const v = /** @type {any} */ (entry.value);
+      if (
+        entry.key === 'attempts' &&
+        v.kind === 'Lit' &&
+        (v.type !== 'int' || /** @type {number} */ (v.value) < 0)
+      ) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.INVALID_ACTION,
+            entry.value,
+            "action 'retry.attempts' must be a non-negative integer"
+          )
+        );
+      }
+      if (
+        entry.key === 'strategy' &&
+        v.kind === 'Lit' &&
+        v.value !== 'fixed' &&
+        v.value !== 'exponential'
+      ) {
+        diagnostics.push(
+          diag(
+            DiagnosticCode.INVALID_ACTION,
+            entry.value,
+            "action 'retry.strategy' must be 'fixed' or 'exponential'"
+          )
+        );
+      }
+    }
+  }
+
   for (const node of ast.nodes) {
     if (node.kind === 'Formula') walk(/** @type {any} */ (node).expr);
     else if (node.kind === 'Macro') for (const a of /** @type {any} */ (node).args) walk(a);
   }
   return diagnostics;
+}
+
+/** `true` when an expression is a literal node (used to decide whether a non-string id/type is a static error). @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
+function isLiteralKind(expr) {
+  return /** @type {any} */ (expr)?.kind === 'Lit';
 }
 
 /**

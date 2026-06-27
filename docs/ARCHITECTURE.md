@@ -151,20 +151,39 @@ transformers are keyed per receiver type. A violation throws `EngineConfigError`
 Each module is organized as **named contract file(s)** (the source of truth for shapes
 and signatures) plus an `index.js` **barrel** that re-exports them.
 
-| Module          | Contract file(s)           | Responsibility                                                               | Spec             |
-| --------------- | -------------------------- | ---------------------------------------------------------------------------- | ---------------- |
-| `src/lexer/`    | `tokens.js` + `lexer.js`   | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant) | IMPL §2          |
-| `src/ast/`      | `nodes.js`                 | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)             | IMPL §3.1        |
-| `src/parser/`   | `parser.js`                | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`           | IMPL §3          |
-| `src/runtime/`  | `values.js`, `registry.js` | `Value` model + the extension `Registry` (custom vocab, name governance)     | IMPL §4, §3      |
-| `src/eval/`     | `evaluator.js`             | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`           | IMPL §5          |
-| `src/run/`      | `run.js`                   | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`             | IMPL §6          |
-| `src/validate/` | `validate.js`              | static diagnostics (undeclared names, arity, types, capabilities)            | IMPL §8          |
-| `src/analyze/`  | `analyze.js`               | `Analysis`: requirement graph, plan, metrics, `streamability`                | IMPL §9          |
-| `src/macros/`   | `expand.js`, `finalize.js` | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass)                | IMPL §10         |
-| `src/driver/`   | `async_driver.js`          | the only async layer; `ProviderOutcome`, `drive`, `stebo`                    | IMPL §7          |
-| `src/util/`     | `errors.js`, `versions.js` | `Diagnostic`/`DiagnosticCode`, error classes, contract versions              | IMPL App. A, §15 |
-| `src/index.js`  | —                          | public API: `createEngine`, `builtins`, `define*`, config defaults           | SPEC §2.2/§2.6   |
+| Module          | Contract file(s)                                     | Responsibility                                                                                                                   | Spec             |
+| --------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `src/lexer/`    | `tokens.js` + `lexer.js`                             | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant)                                                     | IMPL §2          |
+| `src/ast/`      | `nodes.js`                                           | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)                                                                 | IMPL §3.1        |
+| `src/parser/`   | `parser.js`                                          | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`                                                               | IMPL §3          |
+| `src/runtime/`  | `values.js`, `registry.js`                           | `Value` model + the extension `Registry` (custom vocab, name governance)                                                         | IMPL §4, §3      |
+| `src/eval/`     | `evaluator.js`                                       | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`                                                               | IMPL §5          |
+| `src/run/`      | `run.js`                                             | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`                                                                 | IMPL §6          |
+| `src/validate/` | `validate.js`                                        | static diagnostics (undeclared names, arity, types, capabilities)                                                                | IMPL §8          |
+| `src/analyze/`  | `analyze.js`                                         | `Analysis`: requirement graph, plan, metrics, `streamability`                                                                    | IMPL §9          |
+| `src/macros/`   | `expand.js`, `finalize.js`                           | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass)                                                                    | IMPL §10         |
+| `src/driver/`   | `async_driver.js`                                    | the only async layer; `ProviderOutcome`, `drive`, `stebo`                                                                        | IMPL §7          |
+| `src/actions/`  | `contracts.js`, `plan.js`, `policy.js`, `execute.js` | action **contracts + pure planning + policy** (core-safe) and the **execution layer** (`seebo/actions`, the only effectful part) | SPEC §2.8        |
+| `src/util/`     | `errors.js`, `versions.js`                           | `Diagnostic`/`DiagnosticCode`, error classes, contract versions                                                                  | IMPL App. A, §15 |
+| `src/index.js`  | —                                                    | public API: `createEngine`, `builtins`, `define*`, config defaults                                                               | SPEC §2.2/§2.6   |
+
+### Actions (SPEC §2.8): preparation vs. execution
+
+The action subsystem is split so the purity rule holds physically, not just by convention:
+
+- **Core-safe (imported by the pure core):** `contracts.js` (typedefs + status/error/event enums),
+  `plan.js` (build an `ActionDescriptor`, normalize input, derive the idempotency key) and
+  `policy.js` (pure allow/deny decisions, reused by `validate`). These perform no I/O.
+- **Execution layer (`seebo/actions`):** `execute.js` is the **only** module that performs an
+  effect — handler lookup, policy/permission/confirmation enforcement, dry-run, retry, audit, real
+  execution, receipts and compensation. The pure core (`src/eval`, `src/run`, `src/analyze`,
+  `src/validate`) **never imports it** — a conformance test asserts this. The dependency only flows
+  inward (execute.js → contracts/policy/plan), never outward.
+
+`action({...})` is evaluated by the suspendable evaluator like `require`: it is collected into the
+`ActionPlan` only when its subtree is actually reached (lazy gating ⇒ "active actions only"), and
+an unresolved input requirement marks it `blocked` while the `Need` still flows through the normal
+suspend/resume loop. See [`ACTIONS.md`](ACTIONS.md).
 
 ## Public contracts and versioning (SPEC §2.1, IMPL §15)
 

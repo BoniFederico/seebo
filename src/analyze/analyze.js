@@ -6,7 +6,7 @@
 
 import { ANALYSIS_VERSION } from '../util/versions.js';
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement } from '../eval/symbols.js';
+import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
 import { evaluate } from '../eval/evaluator.js';
 
 export { ANALYSIS_VERSION };
@@ -59,6 +59,21 @@ export const Streamability = Object.freeze({
  * @property {Cycle[]} potentialCycles  Cycles detected in the requirement or inclusion graph.
  * @property {number} maxPhases  Upper bound on the number of `run` steps required.
  * @property {number} worstCaseRequirements  Upper bound on the number of requirements across all phases.
+ * @property {ActionSummary[]} actions  Statically-detected action declarations, in document order (SPEC §2.8).
+ */
+
+/**
+ * Best-effort static summary of one `action({...})` declaration (SPEC §2.8). Fields that are
+ * not syntactically constant are reported as `undefined` with `dynamicInput`/`dynamic` set, so
+ * a host can tell what is statically known from what is only resolvable at run time.
+ * @typedef {Object} ActionSummary
+ * @property {string | undefined} id  Action id when a string literal; `undefined` if dynamic.
+ * @property {string | undefined} type  Action type when a string literal; `undefined` if dynamic.
+ * @property {string | undefined} environment  Environment when a string literal; `undefined` otherwise.
+ * @property {boolean} requiresConfirmation  `true` when `confirm: true` is declared literally.
+ * @property {string[]} permissions  Literal permissions declared on the descriptor.
+ * @property {boolean} dynamicInput  `true` when the `input` depends on requirements/expressions.
+ * @property {boolean} duplicateId  `true` when this id repeats an earlier action id.
  */
 
 /** Backward-acting layout macros (rewrite already-emitted text) → force buffering. */
@@ -201,6 +216,10 @@ function analyzeUncached(template, config) {
     .sort((a, b) => a[0] - b[0])
     .map(([phase, reqs]) => ({ phase, requirements: reqs }));
 
+  // Actions (SPEC §2.8): statically-detected `action({...})` declarations in document order,
+  // with best-effort metadata and duplicate-id flagging.
+  const actions = collectActionSummaries(ast);
+
   // Static metrics.
   const deterministic = isDeterministic(ast);
   const staticValues = computeStaticValues(ast, symbols, cfg);
@@ -228,7 +247,48 @@ function analyzeUncached(template, config) {
     potentialCycles,
     maxPhases,
     worstCaseRequirements,
+    actions,
   };
+}
+
+/**
+ * Walks the document collecting `action({...})` declarations in document order, with best-effort
+ * static metadata and duplicate-id detection (SPEC §2.8).
+ * @param {import('../ast/nodes.js').Document} ast
+ * @returns {ActionSummary[]}
+ */
+function collectActionSummaries(ast) {
+  /** @type {ActionSummary[]} */
+  const out = [];
+  const seen = new Set();
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object') return;
+    if (e.kind === 'Call' && e.callee === 'action') {
+      try {
+        const s = extractActionStatic(e);
+        const duplicateId = s.id !== undefined && seen.has(s.id);
+        if (s.id !== undefined) seen.add(s.id);
+        out.push({
+          id: s.id,
+          type: s.type,
+          environment: s.environment,
+          requiresConfirmation: s.confirm,
+          permissions: s.permissions,
+          dynamicInput: s.dynamicInput,
+          duplicateId,
+        });
+      } catch {
+        /* malformed action descriptor — surfaced by validate */
+      }
+    }
+    for (const child of children(e)) visit(child);
+  };
+  for (const node of ast.nodes) {
+    if (node.kind === 'Formula') visit(/** @type {any} */ (node).expr);
+    else if (node.kind === 'Macro') for (const a of /** @type {any} */ (node).args) visit(a);
+  }
+  return out;
 }
 
 /**

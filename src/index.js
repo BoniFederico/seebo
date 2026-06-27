@@ -14,7 +14,7 @@ import { start as _start, run as _run } from './run/index.js';
 import { expand as _expand, finalize as _finalize } from './macros/index.js';
 import { drive as _drive, stebo as _stebo } from './driver/index.js';
 import { createRegistry } from './runtime/registry.js';
-import { EngineConfigError } from './util/errors.js';
+import { EngineConfigError, DiagnosticCode } from './util/errors.js';
 import { DEFAULT_LIMITS } from './util/limits.js';
 import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util/versions.js';
 import {
@@ -38,6 +38,7 @@ export { Status } from './run/run.js';
 export { Streamability } from './analyze/analyze.js';
 export { MacroFamily, BUILTIN_MACROS } from './macros/index.js';
 export { ProviderOutcome } from './driver/async_driver.js';
+export { ActionStatus, ActionErrorCode, ActionEventType, PlanStatus } from './actions/contracts.js';
 
 /**
  * Language reserved words (SPEC §1.5). An identifier introduced by the application cannot
@@ -80,6 +81,7 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * @property {Array<string | MacroExtensionDef>} [macros]  Application-defined macros (from {@link defineMacro}); plain builtin names are accepted and ignored.
  * @property {Array<string | LibraryExtensionDef>} [libraries]  Library namespaces to enable (name or {@link defineLibrary} descriptor).
  * @property {Record<string, import('./eval/evaluator.js').CapabilityFn>} [capabilities]  Capability providers keyed by name.
+ * @property {ActionExtensionDef[]} [actions]  Application-defined action handlers (from {@link defineAction}); executed only via `seebo/actions`.
  * @property {EnginePolicy} [policy]  Runtime policy (allowlists, audit, redact, retry).
  * @property {string} [locale]  BCP-47 locale for formatting. Default: `'en-US'`.
  * @property {() => Date} [clock]  Clock override for deterministic testing. Default: `() => new Date()`.
@@ -101,6 +103,22 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * @property {string[]} [redact]  Requirement ids whose resolved values are redacted from diagnostics.
  * @property {(event: Record<string, unknown>) => void} [audit]  Audit hook called for each capability resolution. Default: noop.
  * @property {{ attempts: number, backoffMs: number }} [retry]  Retry policy. Default: `{ attempts: 0, backoffMs: 0 }` (no retry).
+ * @property {ActionPolicy} [action]  Action-control policy (SPEC §2.8): allow/deny, environment rules, confirmation. Enforced by `seebo/actions`.
+ */
+
+/**
+ * Action-control policy (SPEC §2.8). Deterministic and fail-closed: when an allow-list is
+ * present, anything not on it is denied. Enforced by the execution layer (`seebo/actions`) and
+ * partially by `validate` (statically detectable cases). All fields optional.
+ * @typedef {Object} ActionPolicy
+ * @property {string[]} [allowedActions]  When present, only these action types may run.
+ * @property {string[]} [deniedActions]  Action types that may never run (wins over allow).
+ * @property {boolean} [requireConfirmation]  Force confirmation for every action.
+ * @property {string[]} [requireConfirmationFor]  Force confirmation for these action types.
+ * @property {string[]} [allowedEnvironments]  When present, only these environments are allowed.
+ * @property {Record<string, string[]>} [actionEnvironmentRules]  Per-type environment allow-lists.
+ * @property {boolean} [failFast]  Default `failFast` for plan execution. Default: `false`.
+ * @property {string} [defaultEnvironment]  Environment assigned to an action that pins none. Default: `'test'`.
  */
 
 /**
@@ -170,6 +188,16 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  */
 
 /**
+ * Action-handler descriptor (SPEC §2.8), produced by {@link defineAction}. Registers the host's
+ * concrete effect implementation for an action `type`. The pure core never runs the handler —
+ * only `seebo/actions` does. Semantically separate from capabilities.
+ * @typedef {Object} ActionExtensionDef
+ * @property {'action'} kind
+ * @property {string} type  The action type name (e.g. `'jira.createIssue'`); dotted names allowed.
+ * @property {import('./actions/contracts.js').ActionHandler} handler  The `execute`/`dryRun?`/`compensate?` implementation.
+ */
+
+/**
  * Fully resolved config produced by {@link normalizeConfig}. All optional fields from
  * {@link EngineConfig} that have defaults are guaranteed to be present.
  * @typedef {EngineConfig & { locale: string, clock: () => Date, capabilities: Record<string, import('./eval/evaluator.js').CapabilityFn>, delimiters: Record<string, string>, limits: Record<string, number>, optimizations: Record<string, boolean>, registry: import('./runtime/registry.js').Registry, policy: EnginePolicy & { trustLevel: 'trusted'|'untrusted', capabilityRules: Record<string, CapabilityRule>, audit: (event: Record<string, unknown>) => void, retry: { attempts: number, backoffMs: number } } }} NormalizedConfig
@@ -189,6 +217,7 @@ export function normalizeConfig(config = {}) {
     locale: config.locale ?? 'en-US',
     clock: config.clock ?? (() => new Date()),
     capabilities: config.capabilities ?? {},
+    actions: config.actions ?? [],
     delimiters: { ...DEFAULT_DELIMITERS, ...(config.delimiters ?? {}) },
     limits: { ...DEFAULT_LIMITS, ...(config.limits ?? {}) },
     optimizations: { ...DEFAULT_OPTIMIZATIONS, ...(config.optimizations ?? {}) },
@@ -201,6 +230,7 @@ export function normalizeConfig(config = {}) {
       redact: policy.redact,
       audit: policy.audit ?? (() => {}),
       retry: policy.retry ?? { attempts: 0, backoffMs: 0 },
+      action: policy.action ?? {},
     },
   };
 }
@@ -220,6 +250,7 @@ export function normalizeConfig(config = {}) {
  * @property {(text: string) => string} finalize  Post-pass: applies layout macros.
  * @property {(stateOrTemplate: import('./run/run.js').PublicState | string, opts?: import('./driver/async_driver.js').DriveOptions) => Promise<import('./run/run.js').PublicState>} drive  Drives state to completion asynchronously.
  * @property {(args: import('./driver/async_driver.js').SteboArgs) => Promise<import('./run/run.js').PublicState>} stebo  Convenience orchestrator: expand → drive → finalize.
+ * @property {(type: string, handler: import('./actions/contracts.js').ActionHandler) => Engine} defineAction  Registers a concrete action handler for `type` (SPEC §2.8); returns the engine for chaining. Handlers run only via `seebo/actions`.
  */
 
 /**
@@ -230,10 +261,26 @@ export function normalizeConfig(config = {}) {
  * @returns {Engine}
  */
 export function createEngine(config = {}) {
-  // Name governance runs first (SPEC §1.5/§2.6): a reserved/duplicate name fails here.
+  // Name governance runs first (SPEC §1.5/§2.6): a reserved/duplicate name fails here. This
+  // also validates any statically-configured `config.actions` handlers.
   const registry = createRegistry(config);
+
+  // Live action-handler map for post-construction `engine.defineAction` (SPEC §2.8). It is
+  // layered on top of the frozen registry: a dynamically-registered handler shadows none of
+  // the language vocabulary (actions have their own namespace) and is looked up first.
+  /** @type {Map<string, import('./actions/contracts.js').ActionHandler>} */
+  const dynamicActions = new Map();
+  const composedRegistry = Object.freeze({
+    ...registry,
+    getAction: (/** @type {string} */ type) => dynamicActions.get(type) ?? registry.getAction(type),
+    hasAction: (/** @type {string} */ type) => dynamicActions.has(type) || registry.hasAction(type),
+    get actionNames() {
+      return Object.freeze([...new Set([...registry.actionNames, ...dynamicActions.keys()])]);
+    },
+  });
+
   /** @type {NormalizedConfig} */
-  const cfg = { ...normalizeConfig(config), registry };
+  const cfg = { ...normalizeConfig(config), registry: composedRegistry };
 
   /** @type {Engine} */
   const engine = {
@@ -248,6 +295,17 @@ export function createEngine(config = {}) {
     finalize: (text) => _finalize(text, cfg),
     drive: (stateOrTemplate, opts) => _drive(stateOrTemplate, opts, cfg),
     stebo: (args) => _stebo(args, cfg),
+    defineAction: (type, handler) => {
+      const def = defineAction(type, handler);
+      if (composedRegistry.hasAction(def.type)) {
+        throw new EngineConfigError(`action '${def.type}' is already defined`, {
+          code: DiagnosticCode.NAME_CONFLICT,
+          data: { type: def.type },
+        });
+      }
+      dynamicActions.set(def.type, def.handler);
+      return engine;
+    },
   };
 
   return engine;
@@ -335,6 +393,26 @@ export function defineCapability(name, def) {
     throw new EngineConfigError(`defineCapability('${name}') requires a 'resolve' function`);
   }
   return Object.freeze({ kind: 'capability', name, ...def });
+}
+
+/**
+ * Defines a concrete action handler (SPEC §2.8). Returns a frozen {@link ActionExtensionDef} to
+ * place in `config.actions`, or pass to `engine.defineAction(type, handler)`. The handler is the
+ * host's effect implementation; it runs **only** through the `seebo/actions` execution layer,
+ * never during parse/validate/analyze/run. Semantically separate from capabilities.
+ * @param {string} type  The action type name (e.g. `'jira.createIssue'`); dotted names allowed.
+ * @param {import('./actions/contracts.js').ActionHandler} handler  Must carry an `execute` function.
+ * @returns {ActionExtensionDef}
+ * @throws {EngineConfigError}  If `type` is not a non-empty string or `handler.execute` is missing.
+ */
+export function defineAction(type, handler) {
+  if (typeof type !== 'string' || type.length === 0) {
+    throw new EngineConfigError('defineAction requires a non-empty string type');
+  }
+  if (!handler || typeof handler.execute !== 'function') {
+    throw new EngineConfigError(`defineAction('${type}') requires an 'execute' function`);
+  }
+  return Object.freeze({ kind: 'action', type, handler: Object.freeze({ ...handler }) });
 }
 
 /**

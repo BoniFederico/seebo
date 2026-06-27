@@ -28,11 +28,12 @@ export const BUILTIN_TYPE_NAMES = Object.freeze([
 export const BUILTIN_PRODUCER_NAMES = Object.freeze(['now', 'date']);
 
 /**
- * Special syntactic forms (SPEC §1.6/§1.7): `require(...)` and `var(...)`. They occupy the
- * producer namespace but are not ordinary functions.
+ * Special syntactic forms (SPEC §1.6/§1.7/§2.8): `require(...)`, `var(...)` and `action(...)`.
+ * They occupy the producer namespace but are not ordinary functions — `action(...)` is an
+ * effect *declaration* prepared by the core and executed only via `seebo/actions`.
  * @type {ReadonlyArray<string>}
  */
-export const BUILTIN_FORMS = Object.freeze(['require', 'var']);
+export const BUILTIN_FORMS = Object.freeze(['require', 'var', 'action']);
 
 /**
  * Aggregator (pre-pass / EXPAND) macro names (SPEC §1.8).

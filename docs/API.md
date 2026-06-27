@@ -76,15 +76,45 @@ Each returns a **frozen descriptor** to place in the matching `createEngine` con
 Implementations are **trusted host code**: they receive plain JS values and their results are
 re-wrapped via `fromJs` (no internal `Value`s leak; no `eval` of template text).
 
-| Factory                       | Descriptor `kind` | Place in config                              | Notes                                                                        |
-| ----------------------------- | ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `defineType(name, def?)`      | `'type'`          | `types`                                      | `category?`, `defaultFormat?`, `validate?(v,c)`, `stringify?(v,f)`.          |
-| `defineFunction(name, def)`   | `'function'`      | `functions`                                  | Producer (no `receiver`) or transformer (`receiver` type); `arity?`, `eval`. |
-| `defineMacro(name, def?)`     | `'macro'`         | `macros`                                     | `family?`/`phase?`; a `'finalize'` macro may carry `apply(slot, doc)`.       |
-| `defineCapability(name, def)` | `'capability'`    | wire `def.resolve` into `capabilities[name]` | `resolve(req)` (sync or `Promise`).                                          |
-| `defineLibrary(name, def?)`   | `'library'`       | `libraries`                                  | `functions: { fn: { arity?, eval } }`, invoked as `name.fn()`.               |
+| Factory                       | Descriptor `kind` | Place in config                              | Notes                                                                                |
+| ----------------------------- | ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `defineType(name, def?)`      | `'type'`          | `types`                                      | `category?`, `defaultFormat?`, `validate?(v,c)`, `stringify?(v,f)`.                  |
+| `defineFunction(name, def)`   | `'function'`      | `functions`                                  | Producer (no `receiver`) or transformer (`receiver` type); `arity?`, `eval`.         |
+| `defineMacro(name, def?)`     | `'macro'`         | `macros`                                     | `family?`/`phase?`; a `'finalize'` macro may carry `apply(slot, doc)`.               |
+| `defineCapability(name, def)` | `'capability'`    | wire `def.resolve` into `capabilities[name]` | `resolve(req)` (sync or `Promise`).                                                  |
+| `defineLibrary(name, def?)`   | `'library'`       | `libraries`                                  | `functions: { fn: { arity?, eval } }`, invoked as `name.fn()`.                       |
+| `defineAction(type, handler)` | `'action'`        | `actions` _or_ `engine.defineAction(...)`    | Effect handler (`execute`, `dryRun?`, `compensate?`); runs only via `seebo/actions`. |
 
 See [`USAGE.md`](USAGE.md) for worked examples of each.
+
+---
+
+## Actions (`seebo/actions`, SPEC §2.8)
+
+`action(...)` is a declarative **effect declaration** — the engine prepares an action plan
+(`run(state).actions` / `analyze(template).actions`) but **never** executes it. Execution is
+explicit, through the `seebo/actions` subpath:
+
+```js
+import { createEngine } from 'seebo';
+import { executeActionPlan } from 'seebo/actions';
+```
+
+| Function (`seebo/actions`)            | Returns                          | Purpose                               |
+| ------------------------------------- | -------------------------------- | ------------------------------------- |
+| `executeAction(action, ctx)`          | `Promise<ActionReceipt>`         | Run one prepared action.              |
+| `executeActionPlan(plan, ctx)`        | `Promise<ActionExecutionResult>` | Run a plan in document order.         |
+| `dryRunAction(action, ctx)`           | `Promise<ActionReceipt>`         | Dry-run one action (never `execute`). |
+| `dryRunActionPlan(plan, ctx)`         | `Promise<ActionExecutionResult>` | Dry-run a plan.                       |
+| `compensateAction(receipt, ctx)`      | `Promise<ActionReceipt>`         | Roll back one succeeded action.       |
+| `compensateActionPlan(receipts, ctx)` | `Promise<ActionExecutionResult>` | Roll back receipts in reverse order.  |
+
+`engine.defineAction(type, handler)` registers a handler on a live engine. The action contract
+enums (`ActionStatus`, `ActionErrorCode`, `ActionEventType`, `PlanStatus`) are re-exported from
+both `seebo` and `seebo/actions`. The execution APIs never throw — failures are structured
+`ActionReceipt`s carrying an `ActionError`. See [`ACTIONS.md`](ACTIONS.md) for the full model:
+lifecycle, confirmation, dry-run, idempotency, retry, permissions/policy, audit/redaction and
+compensation.
 
 ---
 
@@ -92,33 +122,35 @@ See [`USAGE.md`](USAGE.md) for worked examples of each.
 
 ### `EngineConfig` (all fields optional)
 
-| Field           | Type                                          | Default                 | Notes                                                           |
-| --------------- | --------------------------------------------- | ----------------------- | --------------------------------------------------------------- |
-| `types`         | `Array<string \| TypeExtensionDef>`           | `[]`                    | Custom types (+ builtin names, ignored).                        |
-| `functions`     | `Array<string \| FunctionExtensionDef>`       | `[]`                    | Producers/transformers.                                         |
-| `macros`        | `Array<string \| MacroExtensionDef>`          | `[]`                    | Aggregator/layout macros.                                       |
-| `libraries`     | `Array<string \| LibraryExtensionDef>`        | `[]`                    | A string only **enables** a namespace.                          |
-| `capabilities`  | `Record<string, (req) => unknown \| Promise>` | `{}`                    | The whole capability set; no builtins (SPEC §1.6).              |
-| `policy`        | `EnginePolicy`                                | see below               | Allow-lists, trust, audit, redact, retry.                       |
-| `locale`        | `string`                                      | `'en-US'`               | Formatting locale (BCP-47).                                     |
-| `clock`         | `() => Date`                                  | `() => new Date()`      | Injected clock for `now()` (determinism).                       |
-| `seed`          | `number`                                      | —                       | Reserved (unused in v1).                                        |
-| `limits`        | `Record<string, number>`                      | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                |
-| `delimiters`    | `Record<string, string>`                      | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`. |
-| `optimizations` | `Record<string, boolean>`                     | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                        |
+| Field           | Type                                          | Default                 | Notes                                                                |
+| --------------- | --------------------------------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `types`         | `Array<string \| TypeExtensionDef>`           | `[]`                    | Custom types (+ builtin names, ignored).                             |
+| `functions`     | `Array<string \| FunctionExtensionDef>`       | `[]`                    | Producers/transformers.                                              |
+| `macros`        | `Array<string \| MacroExtensionDef>`          | `[]`                    | Aggregator/layout macros.                                            |
+| `libraries`     | `Array<string \| LibraryExtensionDef>`        | `[]`                    | A string only **enables** a namespace.                               |
+| `capabilities`  | `Record<string, (req) => unknown \| Promise>` | `{}`                    | The whole capability set; no builtins (SPEC §1.6).                   |
+| `actions`       | `ActionExtensionDef[]`                        | `[]`                    | Action handlers (`defineAction`); executed only via `seebo/actions`. |
+| `policy`        | `EnginePolicy`                                | see below               | Allow-lists, trust, audit, redact, retry, action controls.           |
+| `locale`        | `string`                                      | `'en-US'`               | Formatting locale (BCP-47).                                          |
+| `clock`         | `() => Date`                                  | `() => new Date()`      | Injected clock for `now()` (determinism).                            |
+| `seed`          | `number`                                      | —                       | Reserved (unused in v1).                                             |
+| `limits`        | `Record<string, number>`                      | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                     |
+| `delimiters`    | `Record<string, string>`                      | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`.      |
+| `optimizations` | `Record<string, boolean>`                     | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                             |
 
 ### `EnginePolicy`
 
-| Field                 | Type                             | Effect                                                                |
-| --------------------- | -------------------------------- | --------------------------------------------------------------------- |
-| `allowedTypes`        | `string[]`                       | Static allow-list; a forbidden type constructor → `POLICY_FORBIDDEN`. |
-| `allowedFunctions`    | `string[]`                       | Static allow-list for producers/library fns/custom transformers.      |
-| `allowedCapabilities` | `string[]`                       | Hard allow-list; checked in `validate` and the driver.                |
-| `trustLevel`          | `'trusted' \| 'untrusted'`       | Template trust level (default `'untrusted'`).                         |
-| `capabilityRules`     | `Record<string, CapabilityRule>` | Per-capability rules, checked **before** the provider runs.           |
-| `redact`              | `string[]`                       | Capability ids whose values are masked in diagnostics/audit.          |
-| `audit`               | `(event) => void`                | Hook per capability resolution (no value in clear). Default: noop.    |
-| `retry`               | `{ attempts, backoffMs }`        | Provider retry policy. Default: no retry.                             |
+| Field                 | Type                             | Effect                                                                                                 |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `allowedTypes`        | `string[]`                       | Static allow-list; a forbidden type constructor → `POLICY_FORBIDDEN`.                                  |
+| `allowedFunctions`    | `string[]`                       | Static allow-list for producers/library fns/custom transformers.                                       |
+| `allowedCapabilities` | `string[]`                       | Hard allow-list; checked in `validate` and the driver.                                                 |
+| `trustLevel`          | `'trusted' \| 'untrusted'`       | Template trust level (default `'untrusted'`).                                                          |
+| `capabilityRules`     | `Record<string, CapabilityRule>` | Per-capability rules, checked **before** the provider runs.                                            |
+| `redact`              | `string[]`                       | Capability ids whose values are masked in diagnostics/audit.                                           |
+| `audit`               | `(event) => void`                | Hook per capability resolution (no value in clear). Default: noop.                                     |
+| `retry`               | `{ attempts, backoffMs }`        | Provider retry policy. Default: no retry.                                                              |
+| `action`              | `ActionPolicy`                   | Action controls (allow/deny types, environments, forced confirmation). See [`ACTIONS.md`](ACTIONS.md). |
 
 `CapabilityRule` = `{ allowFrom?: 'trusted'|'untrusted', audit?: boolean }`. `allowFrom: 'trusted'`
 forbids the capability for an untrusted template (`CAPABILITY_FORBIDDEN`); `audit: false` opts

@@ -28,7 +28,9 @@
   ],
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./actions": "./src/actions/index.js",
+    "./package.json": "./package.json"
   },
   "sideEffects": false,
   "files": [
