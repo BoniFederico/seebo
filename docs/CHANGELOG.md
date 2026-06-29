@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-29
+
 ### Added
 
 - **Actions (`action(...)`, SPEC §2.8).** A declarative **effect declaration** prepared by the
@@ -79,4 +81,6 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
 - Intentionally out of scope for v1: a shipped `fake.*` library, `steboStream` streaming, and
   the `lazyParse`/`stream`/`objectPool` optimizations (accepted but inert).
 
+[unreleased]: https://github.com/BoniFederico/seebo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/BoniFederico/seebo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BoniFederico/seebo/releases/tag/v0.1.0
