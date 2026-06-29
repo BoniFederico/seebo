@@ -1,20 +1,49 @@
 name: Release
 
-# Publishes to npm when a version tag (e.g. v0.1.0) is pushed.
+# Two ways to release to npm:
+#
+#  1. One-click (recommended): Actions → Release → "Run workflow", pick the `bump`
+#     (patch/minor/major). The workflow bumps package.json, commits, tags `vX.Y.Z`,
+#     and publishes — so the tag and the published version can never disagree.
+#
+#  2. Tag push (fallback): pushing a `vX.Y.Z` tag still publishes, but a guard first
+#     checks that package.json already matches the tag, failing fast instead of
+#     hitting npm's "cannot publish over previously published versions" (403).
+#
 # Requires the repository secret NPM_TOKEN (an npm automation token).
+
 on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Semver bump to apply before publishing'
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
   push:
     tags:
       - 'v*'
 
+# Never run two releases at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write # needed to push the bump commit and tag
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so `npm version` can create the tag; persist creds to push back.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -27,6 +56,27 @@ jobs:
 
       - name: Quality gate (format, lint, typecheck, test)
         run: npm run check
+
+      # --- Path 1: manual dispatch → bump, commit, tag, push ---
+      - name: Bump version and tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          npm version "${{ inputs.bump }}" -m "release: v%s"
+          git push --follow-tags
+
+      # --- Path 2: tag push → verify the tag matches package.json ---
+      - name: Verify tag matches package.json
+        if: github.event_name == 'push'
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "package.json=$PKG_VERSION  tag=$TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not match package.json version '$PKG_VERSION'. Bump package.json first (or use the one-click Release workflow)."
+            exit 1
+          fi
 
       - name: Publish to npm
         run: npm publish --access public
