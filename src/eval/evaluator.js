@@ -71,7 +71,9 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @property {boolean} [optional]
  * @property {number} [priority]
  * @property {string} [group]
- * @property {Record<string, unknown>} [args]  Opaque data forwarded to the capability provider (formerly `resolverHints`).
+ * @property {Record<string, unknown>} [args]  Opaque data forwarded to the capability provider; may depend on other bindings (SPEC §2.4). Computed at eval time; what the provider receives.
+ * @property {import('../ast/nodes.js').Expr} [argsNode]  Internal: the raw `args` AST, kept in the symbol table so the evaluator can compute `args` per pass. Never serialized into `pending`.
+ * @property {string[]} [argDeps]  Internal: binding names the `args` expression references (the dependency edges). Never serialized into `pending`.
  * @property {number} [phase]
  * @property {unknown[]} [options]
  */
@@ -92,6 +94,7 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @property {Map<string, { kind: string, descriptor: RequirementDescriptor }>} symbols
  * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
  * @property {Map<string, import('../actions/contracts.js').ActionDescriptor>} [actions]  Active action declarations (by id), in reach order.
+ * @property {Set<string>} [argResolving]  Ids whose dynamic `args` are currently being resolved (SPEC §2.4 cycle guard).
  * @property {import('../index.js').EngineConfig} [config]
  * @property {() => Date} clock
  * @property {number} [steps]  Evaluator step counter for the current pass (IMPL §13).
@@ -366,18 +369,64 @@ function resolveDeclaration(decl, ctx) {
  * resolved → default → (optional ⇒ empty) → Need. The capability **contract** (declared via
  * `defineCapability`) is merged first, so an inherited `type`/`default` drives resolution and the
  * emitted Need carries the full type (SPEC §1.6).
+ *
+ * Dynamic `args` (SPEC §2.4): when the descriptor carries an `argsNode` (a capability-`args`
+ * expression that may reference other bindings), it is evaluated against the current environment
+ * **before** the Need is emitted. If a referenced binding is unresolved the args evaluation
+ * suspends, so this need is gated behind its dependency (the dependency's Need surfaces first);
+ * once the dependency resolves, the Need is emitted with the computed `args` attached (and the raw
+ * `argsNode`/`argDeps` stripped, keeping `pending` JSON-safe).
+ *
  * @param {RequirementDescriptor} rawD @param {EvalContext} ctx @returns {EvalResult}
  */
 function resolveRequirement(rawD, ctx) {
   if (Object.prototype.hasOwnProperty.call(ctx.resolved, rawD.id)) {
     return ok(asValue(ctx.resolved[rawD.id]));
   }
-  const d = applyCapabilityContract(rawD, /** @type {any} */ (ctx.config)?.capabilityContracts);
+  const merged = applyCapabilityContract(
+    rawD,
+    /** @type {any} */ (ctx.config)?.capabilityContracts
+  );
+
+  // Resolve dynamic args first so the Need is only emitted once its dependencies are available.
+  const argsNode = /** @type {any} */ (merged).argsNode;
+  let d = merged;
+  if (argsNode !== undefined) {
+    // Cycle guard (SPEC §2.4): an args dependency cycle (a→b→a) would recurse forever.
+    const resolving = ctx.argResolving ?? (ctx.argResolving = new Set());
+    if (resolving.has(merged.id)) {
+      return err(
+        DiagnosticCode.CYCLE_DETECTED,
+        /** @type {any} */ (argsNode),
+        `dependency cycle in 'args' of '${merged.id}'`,
+        { id: merged.id }
+      );
+    }
+    resolving.add(merged.id);
+    const built = evalActionInput(argsNode, ctx);
+    resolving.delete(merged.id);
+    if (built.error) return built.error;
+    if (built.blocked) return susp(built.blocked); // gated behind an unresolved dependency
+    d = stripArgsAst(merged, built.value);
+  }
+
   const type = d.type ?? { type: 'string' };
   if (type.default !== undefined) return ok(fromJs(type.default));
   if (d.optional === true) return ok(emptyValue(type.type));
   ctx.needs.set(d.id, d);
   return susp(d);
+}
+
+/**
+ * Returns a copy of a requirement descriptor with the resolved `args` attached and the internal
+ * `argsNode`/`argDeps` removed, so the descriptor placed into `pending` is JSON-serializable.
+ * @param {RequirementDescriptor} d @param {Record<string, unknown>} args @returns {RequirementDescriptor}
+ */
+function stripArgsAst(d, args) {
+  const out = /** @type {any} */ ({ ...d, args });
+  delete out.argsNode;
+  delete out.argDeps;
+  return out;
 }
 
 /** @param {RequirementDescriptor} d @param {EvalContext} ctx @param {boolean} isValueBinding */

@@ -277,8 +277,11 @@ export function extractBinding(call) {
 }
 
 /**
- * Reads a descriptor `ObjectLit` into a plain object, evaluating the `type` field as a
- * type-builder and other fields as constant literals/JSON.
+ * Reads a descriptor `ObjectLit` into a plain object (SPEC §1.6). The `type` field is evaluated as
+ * a type-builder; the `args` field is kept as its **raw AST** (`argsNode`) plus the list of binding
+ * names it references (`argDeps`), so a capability arg may depend on the resolved value of another
+ * binding (a static dependency edge, runtime value — SPEC §1.6/§2.4); all other fields must be
+ * constant literals/JSON.
  * @param {import('../ast/nodes.js').ObjectLitNode} obj
  * @returns {Record<string, unknown>}
  */
@@ -286,10 +289,38 @@ function readDescriptorObject(obj) {
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const entry of obj.entries) {
-    if (entry.key === 'type') out.type = evalTypeExpr(entry.value);
-    else out[entry.key] = constToJson(entry.value);
+    if (entry.key === '__proto__') continue;
+    if (entry.key === 'type') {
+      out.type = evalTypeExpr(entry.value);
+    } else if (entry.key === 'args') {
+      out.argsNode = entry.value;
+      out.argDeps = collectArgDeps(entry.value);
+    } else {
+      out[entry.key] = constToJson(entry.value);
+    }
   }
   return out;
+}
+
+/**
+ * Collects the binding names a capability `args` expression depends on (SPEC §2.4): the name of
+ * every `Ref` appearing anywhere in the expression (the root of a `Member` chain like `region.code`
+ * is a `Ref`, so it is captured too). Used to build static dependency edges so `analyze` can order
+ * the needs into phases; the value itself stays runtime.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {string[]}
+ */
+export function collectArgDeps(expr) {
+  /** @type {string[]} */
+  const deps = [];
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object') return;
+    if (e.kind === 'Ref' && !deps.includes(e.name)) deps.push(e.name);
+    for (const child of children(e)) visit(child);
+  };
+  visit(expr);
+  return deps;
 }
 
 /**

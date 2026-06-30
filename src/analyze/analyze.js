@@ -156,6 +156,14 @@ function analyzeUncached(template, config) {
       for (const a of /** @type {any} */ (node).args) walkGraph(a, [], governing);
   }
 
+  // Data-dependency edges (SPEC §2.4): a requirement whose capability `args` references another
+  // binding `dep` depends on it — `dep → need` — so the driver resolves `dep` first. These are
+  // ordinary graph edges, so phases and cycle detection apply unchanged.
+  for (const [id, decl] of symbols) {
+    const deps = /** @type {string[] | undefined} */ (decl.descriptor?.argDeps);
+    if (deps && deps.length > 0) governing.set(id, union(governing.get(id) ?? [], deps));
+  }
+
   /** @type {Array<[string, string]>} */
   const edges = [];
   for (const [id, gids] of governing) {
