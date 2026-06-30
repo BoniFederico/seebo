@@ -272,7 +272,7 @@ export function extractBinding(call) {
     // the AST node so a `Ref` to `id` can run `evalAction` on it.
     return { kind: 'action', descriptor: { id, actionNode: descNode } };
   }
-  // Otherwise the descriptor is a type-builder ⇒ a pure value binding (the former `var`).
+  // Otherwise the descriptor is a type-builder ⇒ a pure value binding (internal kind `'var'`).
   return { kind: 'var', descriptor: { id, type: evalTypeExpr(descNode) } };
 }
 

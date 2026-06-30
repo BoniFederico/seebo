@@ -139,7 +139,7 @@ Node     = Text { value }
          | Comment { }                         // rimosso in fase di emissione
          | Macro { name, args, family }        // family: 'aggregator' | 'layout'
 Expr     = Lit { type, value }
-         | Ref { name }                        // riferimento a var/requirement dichiarato
+         | Ref { name }                        // riferimento a bind/needment dichiarato
          | Call { callee, args }               // produttore  nome(...)
          | Method { receiver, name, args }     // trasformatore  x.nome(...)
          | Member { receiver, key }            // o.campo
@@ -261,7 +261,7 @@ EvalResult = Ok(Value) | Susp(Need) | Err(Diagnostic)
 Regole di propagazione (semantica di "monade a tre vie"):
 
 - **Purezza.** La valutazione non muta stato. `.format()/.constraints()` ritornano
-  nuovi oggetti. Le dichiarazioni `var/require` non sono effetti: sono raccolte
+  nuovi oggetti. Le dichiarazioni `bind/need` non sono effetti: sono raccolte
   staticamente (§8).
 - **Propagazione di `Err`.** Un `Err` in una sottoespressione si propaga verso l'alto,
   *salvo* i rami non valutati per lazy (sotto).
@@ -462,7 +462,7 @@ comporta come una funzione sincrona.
 ## 8. Dichiarazioni statiche e tabella dei simboli
 
 Prima di validare/analizzare/eseguire, una **passata statica** sull'AST raccoglie tutte
-le dichiarazioni `var/require` (anche nei template inclusi via `ABSORB/MERGE`, §10) in
+le dichiarazioni `bind/need` (anche nei template inclusi via `ABSORB/MERGE`, §10) in
 una **tabella dei simboli**: `id → descrittore` (tipo, capability, label, vincoli,
 default, opzionalità, e *condizionalità* — sotto quali rami compare).
 
@@ -484,7 +484,7 @@ La raccolta è **puramente sintattica** ⇒ **lineare** e indipendente dai dati.
 (spec§2.3). Come si calcola ciascun campo:
 
 - **`requirements`**: la tabella dei simboli, filtrata sui requirement (esclusi i
-  `var` puri), **arricchita** con i campi derivati `phase` e `options` (quest'ultimo
+  value-binding puri), **arricchita** con i campi derivati `phase` e `options` (quest'ultimo
   estratto da `type.constraints.values`).
 - **`requirementGraph`**: per ogni requirement `B` dichiarato *dentro* un ramo
   condizionale, si calcolano i requirement `A` referenziati dalla **condizione** che
@@ -764,7 +764,7 @@ li riproduce.
 **B.1 — Requirement in rami annidati (calcolo delle fasi).**
 
 ```
-${ a == 'x' ? (b == 'y' ? require({id:'c', type:string(), capability:'user'}) : '') : '' }
+${ a == 'x' ? (b == 'y' ? need({id:'c', type:string(), capability:'user'}) : '') : '' }
 ```
 `c` è governato da due condizioni (su `a` e su `b`). Atteso: `requirementGraph` con archi
 `a→c` e `b→c`; `phase(c) = 1 + max(phase(a), phase(b))`. Se `a`, `b` sono incondizionati
@@ -773,7 +773,7 @@ ${ a == 'x' ? (b == 'y' ? require({id:'c', type:string(), capability:'user'}) : 
 **B.2 — Need in un ramo non preso (non emesso).**
 
 ```
-${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }
+${ flag ? need({id:'x', type:string(), capability:'user'}) : 'ok' }
 ```
 Con `resolved = { flag: false }`: il ramo `then` non è valutato (lazy, §5), quindi `x`
 **non** genera `Need`. Atteso da `run`: `status:'completed'`, `output:'ok'`,
@@ -791,7 +791,7 @@ Con un ramo `* => 'altro'` aggiunto: nessuna diagnostica.
 **B.4 — Capability non registrata.**
 
 ```
-${ require({ id:'x', type:string(), capability:'ghost' }) }
+${ need({ id:'x', type:string(), capability:'ghost' }) }
 ```
 `ghost` non è in `createEngine.capabilities`. Atteso: `validate` →
 `[{ code:'UNKNOWN_CAPABILITY', data:{capability:'ghost'}, recoverable:true }]` (statico,

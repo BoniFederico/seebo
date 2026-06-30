@@ -123,7 +123,7 @@ export const METHODS = {
 
 /**
  * Builtin producer arities (SPEC §1.5). Type builders accept 0 (builder form) or 1 (value
- * form) argument and return their own type. `require`/`var` are intentionally absent: their
+ * form) argument and return their own type. `need`/`bind` are intentionally absent: their
  * descriptors are checked separately (their arity errors surface as syntax issues).
  * @type {Record<string, { min: number, max: number, args?: ArgClass[], ret: InferredType }>}
  */

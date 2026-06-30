@@ -33,7 +33,7 @@ const KNOWN_FIELDS = new Set([
 /**
  * Builds an {@link import('./contracts.js').ActionDescriptor} from the already-evaluated
  * fields of an `action({...})` call (SPEC §2.8). Pure; throws a {@link SeeboError} only on a
- * structurally invalid descriptor (missing `id`/`type`), mirroring `require`.
+ * structurally invalid descriptor (missing `id`/`type`), mirroring `need`.
  *
  * @param {Record<string, unknown>} fields  Plain-JS values of the descriptor object.
  * @param {Object} [opts]

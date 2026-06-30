@@ -127,3 +127,48 @@ test('a value binding without a value or default fails at run', () => {
   const state = engine.run(engine.start(`\${ bind('x', int()) }\${ x }`));
   assert.equal(state.status, 'failed');
 });
+
+test('a duplicate bind id keeps the first declaration (static scope, first wins)', () => {
+  const engine = createEngine();
+  const state = engine.run(
+    engine.start(`\${ bind('x', int().default(1)) }\${ bind('x', int().default(2)) }\${ x }`)
+  );
+  assert.equal(state.status, 'completed');
+  assert.equal(state.output, '1');
+});
+
+test('a value binding with a builder chain (.default/.constraints) is valid (no UNKNOWN_METHOD)', () => {
+  const engine = createEngine();
+  assert.equal(engine.validate(`\${ bind('x', int().default(1)) }\${ x }`).length, 0);
+  assert.equal(
+    engine.validate(`\${ bind('x', string().constraints({ maxLen: 5 })) }\${ x }`).length,
+    0
+  );
+});
+
+test('a value binding is type-checked at its references using the builder type', () => {
+  const engine = createEngine();
+  // `n` is int, so `n + 1` is valid; a string op on it would be a TYPE_ERROR.
+  assert.equal(engine.validate(`\${ bind('n', int().default(1)) }\${ n + 1 }`).length, 0);
+});
+
+test('a bind descriptor that is a bare literal is reported as a SYNTAX_ERROR', () => {
+  const engine = createEngine();
+  const diags = engine.validate(`\${ bind('x', 5) }\${ x }`);
+  assert.ok(diags.some((d) => d.code === 'SYNTAX_ERROR'));
+});
+
+test('a bound action whose input has an unresolved need is blocked and surfaces the Need', () => {
+  const engine = engineWithInput();
+  engine.defineAction('svc.do', { execute: () => ({}) });
+  const tpl =
+    `\${ bind('t', action({ type:'svc.do', input:{ s: need({ id:'x', capability:'input', type:string() }) } })) }` +
+    `\${ t }`;
+  const state = engine.run(engine.start(tpl));
+  assert.equal(state.status, 'waiting');
+  assert.deepEqual(
+    state.pending.map((p) => p.id),
+    ['x']
+  );
+  assert.equal(actionsOf(state)[0].status, 'blocked');
+});

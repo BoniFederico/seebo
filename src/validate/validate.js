@@ -358,8 +358,16 @@ export function validate(template, config) {
    * @returns {import('./infer.js').InferredType}
    */
   function declaredBindType(call) {
-    const desc = call.args[1];
-    return desc ? walk(desc) : 'unknown';
+    const desc = /** @type {any} */ (call.args[1]);
+    if (!desc) return 'unknown';
+    // Side-effect-free type inference (diagnostics are emitted by validateBind, not here):
+    if (desc.kind === 'Call') {
+      if (desc.callee === 'need') return declaredCallType(desc); // requirement's (inherited) type
+      if (desc.callee === 'action') return 'string'; // an action binding renders the empty string
+      if (TYPE_NAMES.has(desc.callee)) return /** @type {any} */ (desc.callee); // bare builder `int()`
+    }
+    if (desc.kind === 'Method') return builderBaseType(desc); // builder chain root, e.g. int().default(1)
+    return 'unknown';
   }
 
   /**
@@ -373,7 +381,8 @@ export function validate(template, config) {
     if (!nameNode || nameNode.kind !== 'Lit' || nameNode.type !== 'string') {
       diagnostics.push(diag(DiagnosticCode.SYNTAX_ERROR, call, 'bind(...) expects a string name'));
     }
-    if (call.args[1] === undefined) {
+    const desc = /** @type {any} */ (call.args[1]);
+    if (desc === undefined) {
       diagnostics.push(
         diag(
           DiagnosticCode.SYNTAX_ERROR,
@@ -383,7 +392,26 @@ export function validate(template, config) {
       );
       return;
     }
-    walk(call.args[1]);
+    // The descriptor must be a type-builder, `need(...)` or `action(...)`; anything else (a bare
+    // literal, an arbitrary expression) is reported clearly rather than leaving the bound name
+    // unregistered (which would surface as a misleading `UNDECLARED_NAME` at the use site).
+    if (!isBindDescriptor(desc)) {
+      diagnostics.push(
+        diag(
+          DiagnosticCode.SYNTAX_ERROR,
+          desc,
+          'bind(...) descriptor must be a type, need(...) or action(...)'
+        )
+      );
+      return;
+    }
+    // Walk `need(...)`/`action(...)` so their own diagnostics (capability/action checks) surface.
+    // A type-builder descriptor (`int().constraints({...})`) is NOT walked as an expression: its
+    // chained `.constraints`/`.format`/`.default` are builder configuration, not value methods, so
+    // walking it would mis-report `UNKNOWN_METHOD`. Its well-formedness is checked at run/extract.
+    if (desc.kind === 'Call' && (desc.callee === 'need' || desc.callee === 'action')) {
+      walk(desc);
+    }
   }
 
   /**
@@ -601,6 +629,37 @@ export function validate(template, config) {
 /** `true` when an expression is a literal node (used to decide whether a non-string id/type is a static error). @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
 function isLiteralKind(expr) {
   return /** @type {any} */ (expr)?.kind === 'Lit';
+}
+
+/**
+ * `true` when `expr` is a valid `bind` descriptor: `need(...)`, `action(...)`, or a type-builder
+ * (`int()`, `string().constraints({...})` — a `Call` to a builtin type, or a `Method` chain rooted
+ * in one). Anything else (a bare literal, an arbitrary expression) is rejected by `validate`.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {boolean}
+ */
+function isBindDescriptor(expr) {
+  const e = /** @type {any} */ (expr);
+  if (!e || typeof e !== 'object') return false;
+  if (e.kind === 'Call')
+    return e.callee === 'need' || e.callee === 'action' || TYPE_NAMES.has(e.callee);
+  if (e.kind === 'Method') return isBindDescriptor(e.receiver); // builder chain (.constraints/.default/…)
+  return false;
+}
+
+/**
+ * Returns the base type at the root of a type-builder chain (`int().default(1)` → `'int'`), or
+ * `'unknown'` if the root is not a builtin type builder. Side-effect free.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {import('./infer.js').InferredType}
+ */
+function builderBaseType(expr) {
+  let e = /** @type {any} */ (expr);
+  while (e && e.kind === 'Method') e = e.receiver;
+  if (e && e.kind === 'Call' && TYPE_NAMES.has(e.callee)) {
+    return /** @type {import('./infer.js').InferredType} */ (e.callee);
+  }
+  return 'unknown';
 }
 
 /**

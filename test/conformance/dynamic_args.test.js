@@ -56,6 +56,19 @@ test('the dependent need is gated until its dependency resolves', () => {
   assert.deepEqual(city?.args, { region: 'EU' });
 });
 
+test('a pending descriptor with computed args is JSON-serializable (no AST leak)', () => {
+  const engine = geoEngine();
+  let state = engine.run(engine.start(DEP_TPL));
+  state.resolved.region = makeString('EU');
+  state = engine.run(state);
+  const city = state.pending.find((p) => p.id === 'city');
+  // The internal argsNode/argDeps must never reach the serialized public state.
+  assert.equal('argsNode' in /** @type {any} */ (city), false);
+  assert.equal('argDeps' in /** @type {any} */ (city), false);
+  // The whole state round-trips through JSON unchanged (the contract of PublicState).
+  assert.doesNotThrow(() => JSON.parse(JSON.stringify(state)));
+});
+
 test('the resolved dependency value reaches the provider via need.args', async () => {
   const engine = geoEngine();
   const driven = await engine.drive(engine.start(DEP_TPL, { region: 'EU' }));

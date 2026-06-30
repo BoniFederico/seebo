@@ -141,7 +141,7 @@ function analyzeUncached(template, config) {
   const ast = parse(template, cfg);
   const symbols = collectDeclarations(ast);
 
-  /** Requirement ids declared in the document (excludes pure `var`s). @type {Set<string>} */
+  /** Requirement ids declared in the document (excludes pure value bindings). @type {Set<string>} */
   const reqIds = new Set();
   for (const [id, decl] of symbols) if (decl.kind === 'require') reqIds.add(id);
 
@@ -310,7 +310,7 @@ function collectActionSummaries(ast) {
 }
 
 /**
- * Records the governing requirement ids for every `require` declared under conditional
+ * Records the governing requirement ids for every `need` declared under conditional
  * branches (the requirement-graph back-edges, IMPL §9).
  * @param {import('../ast/nodes.js').Expr} expr @param {string[]} gov @param {Map<string, string[]>} governing
  */
@@ -362,7 +362,7 @@ function optionsOf(d) {
   return Array.isArray(values) ? values : undefined;
 }
 
-/** Collects identifier ids referenced by an expression: `Ref` names and inner `require` ids. @param {import('../ast/nodes.js').Expr} expr @returns {string[]} */
+/** Collects identifier ids referenced by an expression: `Ref` names and inner `need` ids. @param {import('../ast/nodes.js').Expr} expr @returns {string[]} */
 function collectRefIds(expr) {
   /** @type {string[]} */
   const out = [];

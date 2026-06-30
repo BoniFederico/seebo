@@ -239,10 +239,10 @@ date(pattern, testo)      // interpreta 'testo' secondo 'pattern' → datetime
 duration(secondi)         // durata da un numero (con segno) di secondi → duration
 
 // Accesso al mondo esterno (§1.6)
-require(descrittore)      // richiesta di un valore esterno → il valore, o un Need se assente
+need(descrittore)         // richiesta di un valore esterno → il valore, o un Need se assente
 
-// Variabili statiche (§1.7)
-var(nome, descrittore?)
+// Binding con nome (§1.7) — descrittore = un tipo, need(...) o action(...)
+bind(nome, descrittore)
 
 // Librerie (namespace, caricate pigramente)
 fake.int()   fake.full_name()   fake.email()   ...
@@ -263,7 +263,7 @@ con un prodotto leggibile: `duration(30 * 86400)` (30 giorni), `duration(90 * 60
 > - **operatori e forme**: `and`, `or`, `not`, `in`, `match`
 > - **literali**: `true`, `false`
 > - **tipi builtin**: `int`, `float`, `bool`, `string`, `datetime`, `duration`, `object`, `array`
-> - **produttori builtin**: `now`, `date`, `require`, `var`
+> - **produttori builtin**: `now`, `date`, `need`, `bind`
 > - **macro builtin**: `ABSORB`, `MERGE`, `COLLAPSE`, `REMOVE_LINE`, `REMOVE_LEFT`, `REMOVE_RIGHT`
 >
 > (I tipi builtin fungono anche da produttori — `int(v)`, `array(v)`, … — quindi una
@@ -350,7 +350,7 @@ motore li **soddisfa**. La distinzione fondamentale è:
   chi e come** lo fornirà.
 
 ```
-${ require({ id: 'cliente', type: object(), capability: 'crm', label: 'Cliente' }) }
+${ need({ id: 'cliente', type: object(), capability: 'crm', label: 'Cliente' }) }
 ```
 
 Il template **non sa** se quel `cliente` arriverà da un form, da una query SQL, da un
@@ -361,21 +361,29 @@ requirement, oltre a produrre il proprio valore *sul posto*, lo **registra per n
 ### Il Requirement Descriptor
 
 Un requirement si dichiara con un **descrittore**, un oggetto ricco che permette al
-client di costruire UI e orchestrazioni intelligenti. **Solo `id`, `type` e
-`capability` sono obbligatori**; tutti gli altri campi sono facoltativi.
+client di costruire UI e orchestrazioni intelligenti. **`capability` è sempre
+obbligatorio**; `id` può essere fornito dal nome del `bind` e `type` può essere
+ereditato dal **contratto della capability** (vedi sotto); gli altri campi sono
+facoltativi.
 
 | Campo | Obbl. | Significato |
 |---|---|---|
-| `id` | ✓ | identificatore univoco del requirement (chiave nello stato) |
-| `type` | ✓ | il tipo seebo  atteso, come *builder* (`string()`, `array().constraints({…})`): porta con sé format, constraints ed eventuale default |
+| `id` | ✓* | identificatore univoco del requirement (chiave nello stato). *Fornito dal nome quando si usa `bind('id', need(...))`* |
+| `type` | | il tipo seebo atteso, come *builder* (`string()`, `array().constraints({…})`): porta con sé format, constraints ed eventuale default. *Se omesso, è ereditato dal contratto della capability, altrimenti `string()`* |
 | `capability` | ✓ | la **capacità** che lo può soddisfare (`user`, `crm`, `weather`, …) |
-| `label` | | etichetta breve per la UI |
-| `description` | | testo esteso / aiuto |
+| `label` | | etichetta breve per la UI (ereditabile dal contratto della capability) |
+| `description` | | testo esteso / aiuto (ereditabile dal contratto della capability) |
 | `optional` | | se `true`, può restare non soddisfatto (→ valore vuoto) |
 | `priority` | | ordinamento/urgenza suggeriti al client |
 | `group` | | raggruppamento logico (es. una "sezione" del form) |
-| `resolverHints` | | suggerimenti per il risolutore (es. `{ widget: 'datepicker' }`) |
+| `args` | | dati passati **opachi** al risolutore; un valore può referenziare un altro binding (§2.4), risolto prima e passato al provider |
 | `phase` | | *(calcolato da `analyze`, non scritto a mano)* fase in cui diventa attivo |
+
+> **Contratto della capability (§2.2).** Una capability registrata con
+> `defineCapability({ type, label, description, resolve })` dichiara un **contratto**
+> statico che `need('cap')` eredita: il template non deve ripetere il tipo. In caso di
+> conflitto **vince il template**. Una capability registrata come semplice funzione non
+> porta contratto (il `type` ripiega su `string()`).
 
 > **Nota di coerenza (cardinalità).** Non esiste un campo `multiple`: la cardinalità si
 > esprime con il **tipo**. Un requirement che raccoglie più valori è di tipo `array`
@@ -406,20 +414,20 @@ capability 'weather'  →  una API meteo
 
 ### Zucchero sintattico: una capability è anche un produttore
 
-Scrivere ogni volta `require({ capability:'crm', … })` è verboso. Per questo, **nel
+Scrivere ogni volta `need({ capability:'crm', … })` è verboso. Per questo, **nel
 momento in cui una capability viene registrata** in `createEngine`, il suo nome diventa
 automaticamente disponibile come **produttore**: invocarlo equivale a un `require` con
 quella `capability` già impostata.
 
 ```
 crm({ id:'cliente', type:object(), label:'Cliente' })
-// ≡ require({ id:'cliente', type:object(), capability:'crm', label:'Cliente' })
+// ≡ need({ id:'cliente', type:object(), capability:'crm', label:'Cliente' })
 ```
 
 `crm` **non è builtin**: esiste come produttore *solo* perché l'applicazione ha
 registrato la capability omonima. Lo zucchero è puramente sintattico e viene risolto
 **staticamente** (il campo `capability` è iniettato dal nome del produttore), quindi non
-intacca l'analizzabilità. La forma esplicita `require(...)` resta sempre valida e
+intacca l'analizzabilità. La forma esplicita `need(...)` resta sempre valida e
 rimane la base concettuale; lo zucchero è solo un'abbreviazione.
 
 Poiché il nome della capability diventa un produttore, esso deve rispettare le **parole
@@ -458,27 +466,34 @@ volta: **il motore resta identico**.
 
 ## 1.7 Variabili, requirement e liste a scelta
 
-### Variabili (`var`) vs requirement (`require`)
+### Binding (`bind`) e requirement (`need`)
 
-Entrambi introducono **valori con nome**; differiscono per *quando* e *come* si
-soddisfano:
+`bind(nome, descrittore)` introduce un **valore con nome**; la natura è il *kind* del
+descrittore. `need(descrittore)` dichiara un requirement (anche inline, senza `bind`):
 
-- **`var('api_key', string())`** — valore noto *prima* della valutazione (config,
+- **`bind('api_key', string())`** — valore noto *prima* della valutazione (config,
   segreto, costante d'ambiente del documento). **Immutabile**: non cambia durante la
   conversazione. Se manca, si usa il `default` del descrittore o si segnala errore.
-- **`require(descrittore)`** — valore che può arrivare *durante* la conversazione, via
-  capability. Genera un `Need` finché non è soddisfatto.
+- **`bind('nome', need(descrittore))`** (o `need(descrittore)` inline) — valore che può
+  arrivare *durante* la conversazione, via capability. Genera un `Need` finché non è
+  soddisfatto. Il nome del `bind` fornisce l'`id` del requirement.
+- **`bind('t', action(descrittore))`** — un **effetto** (§2.8), attivato dove il nome è
+  referenziato.
+
+Dopo la dichiarazione, il valore si legge **per nome** (`${ nome }`); un riferimento a un
+nome non dichiarato è `UNDECLARED_NAME`.
 
 ```
-var('api_key', string())                                       // variabile statica
-require({ id:'nome', type:string(), capability:'user', label:'Il tuo nome' })  // requirement
+bind('api_key', string())                                       // variabile statica
+need({ id:'nome', type:string(), capability:'user', label:'Il tuo nome' })  // requirement
 ${ nome }                                                      // riferimento per nome
 ```
 
-Il **descrittore di `var`** (secondo argomento, opzionale) è un oggetto tipato che fissa
-`type`, `format`, `constraints` ed eventuale `default`. Se assente, il default è
-`string()` senza vincoli. Per i requirement lo stesso ruolo è svolto dal campo `type`
-del Requirement Descriptor, che è un *builder* di tipo (coerenza con `var`).
+Il **descrittore di un binding di valore** (il secondo argomento di `bind`, un *type
+builder*) è un oggetto tipato che fissa `type`, `format`, `constraints` ed eventuale
+`default`. Se è un semplice `string()` senza metodi, il default è `string` senza vincoli.
+Per i requirement lo stesso ruolo è svolto dal campo `type` del Requirement Descriptor,
+che è un *builder* di tipo (coerenza con i binding di valore).
 
 > **Dove vive `default`.** Il **descrittore tipato** — l'oggetto prodotto dai builder
 > `string()`, `array()`, `int()`, … — ha la forma `{ type, format, constraints,
@@ -486,13 +501,13 @@ del Requirement Descriptor, che è un *builder* di tipo (coerenza con `var`).
 > dentro `constraints` (i constraints sono regole di validità, il default è un valore di
 > ripiego) e *non* è un campo a sé del Requirement Descriptor (che lo riceve attraverso
 > il proprio `type`). Lo si imposta col builder, es. `string().default('N/D')` oppure
-> passando l'oggetto `{ type:'string', default:'N/D' }`. Conseguenza: `var` e `require`
+> passando l'oggetto `{ type:'string', default:'N/D' }`. Conseguenza: `bind` e `need`
 > ottengono il default per la **stessa** via, ed è quello usato al punto (1) della
 > precedenza di risoluzione qui sotto.
 
 ### Regola di *scope statico*
 
-Le dichiarazioni (`var`, `require`) sono **raccolte staticamente** dal testo del
+Le dichiarazioni (`bind`, `need`) sono **raccolte staticamente** dal testo del
 template (e dei template inclusi), **indipendentemente** dal fatto che il ramo in cui
 compaiono venga poi valutato. Di conseguenza:
 
@@ -520,7 +535,7 @@ compaiono venga poi valutato. Di conseguenza:
 Si ottengono come **requirement** con `type` di tipo `array` e il vincolo `values`:
 
 ```
-${ require({ id:'provider', capability:'user', label:'Provider',
+${ need({ id:'provider', capability:'user', label:'Provider',
              type: array().constraints({ values:['AWS','Azure','GCP'], minLen:1, maxLen:1 }) }) }
 // maxLen 1 ⇒ selezione singola; maxLen assente o >1 ⇒ multi-selezione
 ```
@@ -777,10 +792,10 @@ quando non è `full`, dalle diagnostiche che spiegano *cosa* impedisce lo stream
 
 ```js
 engine.analyze(`
-  ${ require({ id:'paese', capability:'user', label:'Paese',
+  ${ need({ id:'paese', capability:'user', label:'Paese',
               type: array().constraints({ values:['IT','US'] }) }) }
   ${ paese == 'IT'
-       ? require({ id:'citta', capability:'user', label:'Città', type: string() })
+       ? need({ id:'citta', capability:'user', label:'Città', type: string() })
        : '' }
 `)
 // → {
@@ -928,7 +943,7 @@ const Slugify = defineFunction('slugify', {
 // Una nuova macro (aggregatore o layout)
 const Banner = defineMacro('BANNER', { phase: 'finalize', apply: (slot, doc) => /* … */ });
 
-// Una nuova capability: il template userà require({ capability:'weather', … })
+// Una nuova capability: il template userà need({ capability:'weather', … })
 const Weather = defineCapability('weather', {
   resolve: async (req) => fetchOpenMeteo(req.location),   // può essere async
 });
