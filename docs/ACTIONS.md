@@ -3,12 +3,12 @@
 `action(...)` is Seebo's declarative construct for **external effects** (SPEC §2.8). It is the
 fourth peer of the data-flow vocabulary:
 
-| Construct      | Role                                                   |
-| -------------- | ------------------------------------------------------ |
-| `require(...)` | declares missing **input** data the template needs     |
-| `capability`   | **resolves** external data into the engine             |
-| `function`     | a **pure**, value-oriented computation                 |
-| `action(...)`  | declares an external **effect** the engine can prepare |
+| Construct     | Role                                                   |
+| ------------- | ------------------------------------------------------ |
+| `need(...)`   | declares missing **input** data the template needs     |
+| `capability`  | **resolves** external data into the engine             |
+| `function`    | a **pure**, value-oriented computation                 |
+| `action(...)` | declares an external **effect** the engine can prepare |
 
 The cardinal rule: **the pure core never executes an action.** `run`/`analyze`/`validate`/preview
 only ever _prepare_ an **action plan**. Execution happens solely through the explicit
@@ -33,8 +33,8 @@ ${ action({
   type: 'jira.createIssue',
   input: {
     project: 'AM',
-    summary: require({ id: 'summary', type: string(), capability: 'input' }),
-    description: require({ id: 'description', type: string(), capability: 'input' })
+    summary: need({ id: 'summary', type: string(), capability: 'input' }),
+    description: need({ id: 'description', type: string(), capability: 'input' })
   },
   confirm: true,
   environment: 'test'
@@ -44,7 +44,7 @@ ${ action({
 A single template may declare **zero, one, or many** actions. The engine collects every action
 that is **reachable** under the template's evaluation semantics — an action gated behind a
 ternary/`and`/`or` branch that is not taken is simply never collected (the same lazy gating that
-governs `require`).
+governs `need`).
 
 ### Descriptor fields
 
@@ -52,7 +52,7 @@ governs `require`).
 | ---------------- | ---------------------------------------------------------------------------------- |
 | `id` (required)  | Unique id within a run/plan.                                                       |
 | `type` (req.)    | Handler type name (e.g. `'jira.createIssue'`); dotted names allowed.               |
-| `input`          | Object of resolved values; may reference `require(...)`.                           |
+| `input`          | Object of resolved values; may reference `need(...)`.                              |
 | `confirm`        | `true` ⇒ the action must be explicitly confirmed before it may run.                |
 | `environment`    | Target environment (`'test'`, `'prod'`, …). Defaults via policy (`'test'`).        |
 | `dryRun`         | Hint that the action prefers a dry-run.                                            |

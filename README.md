@@ -28,8 +28,14 @@ A template is text with three kinds of slots (delimiters are configurable, SPEC 
 
 Everything is typed (`int`, `float`, `bool`, `string`, `datetime`, `duration`, `object`,
 `array`); stringification happens only at slot emission, driven by each value's `format` and
-`constraints`. Missing data declared via `require(...)` / capability sugar becomes a `Need`
+`constraints`. Missing data declared via `need(...)` / capability sugar becomes a `Need`
 that suspends evaluation instead of throwing.
+
+A name is introduced with `bind(name, descriptor)` and read **plain** by name afterwards
+(`${ name }`). The descriptor's nature is its kind: a type-builder (a pure value), `need(...)`
+(missing data), or `action(...)` (an effect). A capability can declare its own contract
+(`type`/`constraints`) so `need('cap')` inherits it, and a capability `args` value may depend on
+another binding (resolved first, in phases). See [`docs/USAGE.md`](docs/USAGE.md).
 
 A template can also declare external **effects** with `action({...})` (SPEC §2.8). The pure core
 only _prepares_ an action plan (`run(state).actions`); execution is explicit and host-driven via
@@ -71,7 +77,7 @@ res.output; // '7'
 ```js
 const engine = createEngine({
   capabilities: {
-    // A capability resolves a `require`; returning undefined means "not me".
+    // A capability resolves a `need`; returning undefined means "not me".
     user: () => undefined,
   },
 });
@@ -87,7 +93,7 @@ state.status; // 'completed'
 state.output; // 'Hello World!'
 ```
 
-### Capabilities as producers (the `require` sugar)
+### Capabilities as producers (the `need` sugar)
 
 ```js
 const engine = createEngine({

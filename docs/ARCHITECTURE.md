@@ -180,7 +180,7 @@ The action subsystem is split so the purity rule holds physically, not just by c
   `src/validate`) **never imports it** — a conformance test asserts this. The dependency only flows
   inward (execute.js → contracts/policy/plan), never outward.
 
-`action({...})` is evaluated by the suspendable evaluator like `require`: it is collected into the
+`action({...})` is evaluated by the suspendable evaluator like `need`: it is collected into the
 `ActionPlan` only when its subtree is actually reached (lazy gating ⇒ "active actions only"), and
 an unresolved input requirement marks it `blocked` while the `Need` still flows through the normal
 suspend/resume loop. See [`ACTIONS.md`](ACTIONS.md).

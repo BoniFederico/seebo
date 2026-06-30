@@ -29,6 +29,43 @@ console.log(res.output); // "Order 42"
 (`tokenize`, `parse`, `validate`, `analyze`, `start`, `run`, `expand`, `finalize`, `drive`,
 `stebo`).
 
+## Bindings: `bind` and `need` (SPEC §1.6/§1.7)
+
+A template declares the data, values and effects it depends on, and references them **plain** by
+name afterwards (`${ name }`). A reference to an undeclared name is an `UNDECLARED_NAME` error.
+
+- `need({ id, capability, type?, ... })` declares missing data resolved by a capability; the short
+  form `need('cap')` inherits the capability's contract. Used inline it shows the value where it
+  appears.
+- `bind(name, descriptor)` introduces a **named** binding for reuse; the descriptor's kind decides
+  its nature:
+  - a **type-builder** (`int()`, `string().constraints({ min: 0 })`) → a pure value;
+  - **`need(...)`** → missing data (the `name` becomes the requirement `id`);
+  - **`action(...)`** → an effect, activated where the bound name is referenced (see
+    [`ACTIONS.md`](ACTIONS.md)).
+
+```js
+const engine = createEngine({ capabilities: { input: () => undefined } });
+
+const tpl = [
+  "${ bind('vat', float().default(0.22)) }", // a pure value
+  "${ bind('amount', need('input')) }", // missing data (capability contract supplies the type)
+  'Total: ${ amount } + VAT ${ amount * vat }',
+].join('');
+
+let state = engine.run(engine.start(tpl));
+state.pending.map((r) => r.id); // ['amount']  — declared once, read plain everywhere
+```
+
+A capability `args` value may depend on another binding; the dependency is resolved **first** and
+its value forwarded to the provider (`need.args`), with `analyze` ordering the two into phases:
+
+```js
+// region resolves in phase 1; city's provider receives the resolved region via args in phase 2.
+"${ bind('region', need('input')) }" +
+  "${ bind('city', need({ capability:'geo', args:{ region: region } })) }${ city }";
+```
+
 ## Extensibility (SPEC §2.6)
 
 All extensions are created with a `define*` factory that returns a **frozen descriptor**, then
@@ -89,20 +126,36 @@ parsing; calling an unregistered `ns.fn()` is an `UNKNOWN_FUNCTION` diagnostic.
 
 ### Custom capabilities — `defineCapability`
 
-A capability resolves a `require`. Register its `resolve` under the matching key of
-`capabilities` (the driver's wiring point). The capability name automatically becomes a
-producer (the `require` sugar of SPEC §1.6).
+A capability resolves a `need`. Place the `defineCapability(...)` descriptor (or a bare resolver
+function) under the matching key of `capabilities` (the driver's wiring point). The capability
+name automatically becomes a producer (the `need` sugar of SPEC §1.6).
+
+A capability may declare its own **contract** (`type`/`constraints` via a type builder, plus
+`label`/`description`). A `need('cap')` then inherits it, so the template need not repeat the type;
+the template still wins on any field it overrides.
 
 ```js
 import { defineCapability } from 'seebo';
 
-const Weather = defineCapability('weather', {
-  resolve: async (req) => fetchForecast(req.resolverHints?.city),
+const engine = createEngine({
+  capabilities: {
+    // With a contract: need('weather') inherits type string().
+    weather: defineCapability('weather', {
+      type: string(),
+      label: 'Daily forecast',
+      resolve: async (req) => fetchForecast(req.args?.city),
+    }),
+    // A bare function still works (no contract; type defaults to string()).
+    user: () => undefined,
+  },
 });
 
-const engine = createEngine({ capabilities: { [Weather.name]: Weather.resolve } });
-// Template: ${ weather({ id:'today', type:string() }) }
+// Template (capability sugar):  ${ weather({ id:'today' }) }
+// Or via a binding, read plain:  ${ bind('today', need('weather')) }Forecast: ${ today }
 ```
+
+> The data a capability needs comes from the descriptor's `args` (forwarded opaquely to
+> `resolve`); an `args` value may reference another binding (resolved first — see _Bindings_ below).
 
 ### Custom macros — `defineMacro`
 
@@ -184,7 +237,7 @@ const engine = createEngine({
   },
 });
 
-await engine.stebo({ template: "${ require({ id:'k', type:string(), capability:'secrets' }) }" });
+await engine.stebo({ template: "${ need({ id:'k', type:string(), capability:'secrets' }) }" });
 // status 'failed' with a CAPABILITY_FORBIDDEN diagnostic (untrusted template)
 ```
 
@@ -299,7 +352,7 @@ surface depends on whether the cause is structural (static) or value-dependent (
 | Wrong argument count                                | `ARITY_MISMATCH`                     | `validate` (and `run`)                 |
 | Provable operator/argument type violation           | `TYPE_ERROR`                         | `validate`                             |
 | `match` without `*` over an open domain             | `NON_EXHAUSTIVE_MATCH`               | `validate`                             |
-| `require` cites an unregistered capability          | `UNKNOWN_CAPABILITY`                 | `validate`                             |
+| `need` cites an unregistered capability             | `UNKNOWN_CAPABILITY`                 | `validate`                             |
 | Type/function/capability excluded by `policy`       | `POLICY_FORBIDDEN`                   | `validate`                             |
 | Malformed syntax                                    | `SYNTAX_ERROR`                       | `parse` throws; `validate` returns one |
 | Value violates its own `constraints`                | `CONSTRAINT_VIOLATION`               | `run` (failed state)                   |
