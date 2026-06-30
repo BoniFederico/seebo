@@ -8,11 +8,30 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **BREAKING: `bind` is now value-only; need/action are declared lazily with `prepare(...)`
+  (SPEC §1.7).** `bind(name, type)` names a **pure value** binding; `bind('x', need(...))` and
+  `bind('x', action(...))` are **removed**. A need/action is declared for reuse with
+  `prepare(need(...))` / `prepare(action(...))`, carrying its own `id`. Both are read **plain**
+  (`${ id }`) and are **lazy** — the need is requested, and the action activated, only where its id
+  is referenced. Migration: `bind('id', need('cap'))` → `prepare(cap('id'))` (or
+  `prepare(need({ id, capability })))`); `bind('id', action({...}))` → `prepare(action({ id, ... }))`.
+
+### Added
+
+- **Capability sugar string shorthand `cap('id')`.** A registered capability used with a bare
+  string is the requirement **id**: `input('amount')` ≡ `need({ id:'amount', capability:'input' })`
+  (inheriting the capability contract). Fixes the previous `cap('x')` error ("need descriptor needs
+  a string 'id'").
+
+## [0.3.0] — 2026-06-30
+
+### Changed
+
 - **Binding redesign (SPEC §1.6/§1.7/§2.4).** Unified the declarative surface under
   `bind(name, descriptor)` and `need({...})`. A name is declared once and read **plain** by name
   afterwards (`${ name }`); a reference to an undeclared name is `UNDECLARED_NAME`.
 - **Capability contracts (§1.6).** `defineCapability({ type, label, description, resolve })` declares
-  a contract that `need('cap')` inherits, so the template need not repeat the type; the template
+  a contract that a need inherits, so the template need not repeat the type; the template
   still wins on any field it overrides. A capability map entry may be a resolver function (as before)
   or a `defineCapability` descriptor.
 - **Dynamic capability `args` (§2.4).** A capability `args` value may reference another binding; the
@@ -101,6 +120,7 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
 - Intentionally out of scope for v1: a shipped `fake.*` library, `steboStream` streaming, and
   the `lazyParse`/`stream`/`objectPool` optimizations (accepted but inert).
 
-[unreleased]: https://github.com/BoniFederico/seebo/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/BoniFederico/seebo/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/BoniFederico/seebo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BoniFederico/seebo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BoniFederico/seebo/releases/tag/v0.1.0

@@ -28,16 +28,18 @@ export const BUILTIN_TYPE_NAMES = Object.freeze([
 export const BUILTIN_PRODUCER_NAMES = Object.freeze(['now', 'date']);
 
 /**
- * Special syntactic forms (SPEC §1.6/§1.7/§2.8): `need(...)`, `bind(...)` and `action(...)`.
- * They occupy the producer namespace but are not ordinary functions:
+ * Special syntactic forms (SPEC §1.6/§1.7/§2.8): `need(...)`, `bind(...)`, `prepare(...)` and
+ * `action(...)`. They occupy the producer namespace but are not ordinary functions:
  *  - `need({...})` declares missing external data resolved by a capability (the descriptor);
- *  - `bind(name, descriptor)` declares a named binding — a value, a {@link need} or an
- *    {@link action} — referenced **plain** (`${ name }`) elsewhere;
+ *  - `bind(name, type)` names a **pure value** binding (a type-builder), referenced **plain**
+ *    (`${ name }`) elsewhere;
+ *  - `prepare(need(...) | action(...))` declares a need/action **lazily** for reuse by its own
+ *    `id` (the descriptor carries the id); it emits nothing and is referenced plain by that id;
  *  - `action(...)` is an effect *declaration* prepared by the core and executed only via
  *    `seebo/actions`.
  * @type {ReadonlyArray<string>}
  */
-export const BUILTIN_FORMS = Object.freeze(['need', 'bind', 'action']);
+export const BUILTIN_FORMS = Object.freeze(['need', 'bind', 'prepare', 'action']);
 
 /**
  * Aggregator (pre-pass / EXPAND) macro names (SPEC §1.8).

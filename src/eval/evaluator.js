@@ -42,6 +42,7 @@ import {
   collectDeclarations,
   extractRequirement,
   extractBinding,
+  extractPrepare,
   applyCapabilityContract,
 } from './symbols.js';
 import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
@@ -355,12 +356,9 @@ function resolveRef(name, ctx, node) {
 /** @param {{ kind: string, descriptor: any }} decl @param {EvalContext} ctx */
 function resolveDeclaration(decl, ctx) {
   if (decl.kind === 'var') return resolveValueOrDefault(decl.descriptor, ctx, true);
-  // An `action` binding referenced by name (`${ ticket }`) records the action into the plan and
+  // A prepared action referenced by its id (`${ ticket }`) records the action into the plan and
   // emits nothing — the same effect as an inline `action({...})`, deferred to the reference site.
-  // The binding name supplies the action `id`.
-  if (decl.kind === 'action') {
-    return evalAction(decl.descriptor.actionNode, ctx, decl.descriptor.id);
-  }
+  if (decl.kind === 'action') return evalAction(decl.descriptor.actionNode, ctx);
   return resolveRequirement(decl.descriptor, ctx);
 }
 
@@ -525,7 +523,8 @@ function evalCall(e, ctx) {
     }
     return resolveRequirement(descriptor, ctx);
   }
-  if (e.callee === 'bind') return evalBind(e, ctx);
+  if (e.callee === 'bind') return evalDeclaration(e, extractBinding);
+  if (e.callee === 'prepare') return evalDeclaration(e, extractPrepare);
   if (e.callee === 'action') return evalAction(e, ctx);
   if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
   if (e.callee === 'date') return evalDate(e, ctx);
@@ -571,15 +570,18 @@ function evalCall(e, ctx) {
 }
 
 /**
- * Evaluates a `bind(name, descriptor)` declaration (SPEC §1.7). A binding is a pure declaration:
- * the name is registered statically by {@link collectDeclarations}, so here it emits nothing. The
- * bound value/need/effect is resolved or activated only where the name is referenced (`${ name }`).
- * Validates the call shape so a malformed `bind` is a runtime error rather than a silent no-op.
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
+ * Evaluates a lazy declaration — `bind(name, type)` (SPEC §1.7) or `prepare(need(...) | action(...))`.
+ * A declaration registers a name statically (via {@link collectDeclarations}) and emits **nothing**
+ * here; the value/need/effect is resolved or activated only where the name is referenced
+ * (`${ name }`). `extract` re-validates the call shape so a malformed declaration is a runtime error
+ * rather than a silent empty string.
+ * @param {import('../ast/nodes.js').CallNode} e
+ * @param {(call: import('../ast/nodes.js').CallNode) => unknown} extract  The matching extractor ({@link extractBinding}/{@link extractPrepare}).
+ * @returns {EvalResult}
  */
-function evalBind(e, _ctx) {
+function evalDeclaration(e, extract) {
   try {
-    extractBinding(e); // shape validation; the binding is already registered in the symbol table
+    extract(e); // shape validation; the declaration is already registered in the symbol table
   } catch (ex) {
     return errFrom(ex, e);
   }
@@ -597,12 +599,9 @@ function evalBind(e, _ctx) {
  * input suspends; the `Need` is still recorded (so the normal suspend/resume flow drives it)
  * and the descriptor is recorded with `status: 'blocked'` and the resolved-so-far input.
  *
- * When activated through a `bind(name, action({...}))` reference, `idFromBind` supplies the
- * action `id` (so it need not be repeated in the descriptor).
- *
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @param {string} [idFromBind] @returns {EvalResult}
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @returns {EvalResult}
  */
-function evalAction(e, ctx, idFromBind) {
+function evalAction(e, ctx) {
   const obj = e.args[0];
   if (!obj || obj.kind !== 'ObjectLit') {
     return err(DiagnosticCode.SYNTAX_ERROR, e, 'action(...) expects a descriptor object');
@@ -610,7 +609,6 @@ function evalAction(e, ctx, idFromBind) {
 
   /** @type {Record<string, unknown>} */
   const fields = {};
-  if (idFromBind !== undefined) fields.id = idFromBind;
   let blockedNeed = null;
   for (const entry of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
     if (entry.key === '__proto__') continue;

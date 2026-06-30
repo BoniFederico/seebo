@@ -3,11 +3,11 @@
  *
  * A purely syntactic pass over the AST collects every binding into a symbol table
  * (`id → { kind, descriptor }`), realizing the **static scope** of SPEC §1.7 (a name is visible
- * everywhere, regardless of the branch it appears in). Bindings come from two forms:
- *  - `need({...})` — a missing-data requirement resolved by a capability (kind `'require'`);
- *  - `bind(name, descriptor)` — a named binding whose nature is the kind of its descriptor:
- *    a type-builder ⇒ a pure value (`'var'`), `need(...)` ⇒ a requirement (`'require'`), or
- *    `action(...)` ⇒ an effect (`'action'`). The `name` becomes the binding's `id`.
+ * everywhere, regardless of the branch it appears in). Bindings come from three forms:
+ *  - `need({ id, capability, ... })` — a missing-data requirement (kind `'require'`);
+ *  - `bind(name, type)` — a named **pure value** binding (kind `'var'`); `name` is its id;
+ *  - `prepare(need(...) | action(...))` — a need/action declared **lazily** for reuse by its own
+ *    `id` (kind `'require'`/`'action'`). It emits nothing and activates only at the reference site.
  *
  * Also extracts a {@link import('./evaluator.js').RequirementDescriptor} from a `need(...)` call
  * and evaluates a type-builder expression (`string()`, `array().constraints({...})`, ...) into a
@@ -25,20 +25,20 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * is consumed read-only, so a cached one can be safely shared. With `optimizations.astCache`
  * the AST is stable across `run` passes, so the static scan runs once per template instead of
  * once per pass (IMPL §8/§11).
- * @type {WeakMap<import('../ast/nodes.js').Document, Map<string, { kind: 'require'|'var', descriptor: any }>>}
+ * @type {WeakMap<import('../ast/nodes.js').Document, Map<string, { kind: 'require'|'var'|'action', descriptor: any }>>}
  */
 const DECL_CACHE = new WeakMap();
 
 /**
  * Collects all bindings from a document (all branches, statically). Memoized by AST identity.
  * @param {import('../ast/nodes.js').Document} ast
- * @returns {Map<string, { kind: 'require'|'var', descriptor: import('./evaluator.js').RequirementDescriptor }>}
+ * @returns {Map<string, { kind: 'require'|'var'|'action', descriptor: import('./evaluator.js').RequirementDescriptor }>}
  */
 export function collectDeclarations(ast) {
   const cached = DECL_CACHE.get(ast);
   if (cached) return cached;
 
-  /** @type {Map<string, { kind: 'require'|'var', descriptor: any }>} */
+  /** @type {Map<string, { kind: 'require'|'var'|'action', descriptor: any }>} */
   const table = new Map();
   for (const node of ast.nodes) {
     if (node.kind === 'Formula') walkExpr(/** @type {any} */ (node).expr, table);
@@ -54,26 +54,35 @@ function walkExpr(expr, table) {
   if (!expr || typeof expr !== 'object') return;
   if (expr.kind === 'Call') {
     const call = /** @type {import('../ast/nodes.js').CallNode} */ (expr);
+    // The static collection must never throw — it feeds `validate`, which is contractually
+    // non-throwing — so every extractor is guarded; malformed forms surface at validate/run.
     if (call.callee === 'need') {
-      // A standalone `need({ id, ... })` registers a requirement. A `need(...)` nested inside a
-      // `bind(...)` has no own `id` (it comes from the bind) and is already registered by the
-      // `bind` branch below — `extractRequirement` then throws on the missing id, so we skip it.
+      // A `need({ id, ... })` registers a requirement. The `need(...)` nested inside a
+      // `prepare(...)` is registered by the `prepare` branch and has the same id, so the dedupe
+      // (`!table.has`) makes re-encountering it here a harmless no-op.
       try {
         const d = extractRequirement(call);
         if (!table.has(d.id)) table.set(d.id, { kind: 'require', descriptor: d });
       } catch {
-        /* bind-wrapped or malformed need: handled by the bind branch / surfaced at eval */
+        /* malformed need: surfaced at validate/eval */
+      }
+    } else if (call.callee === 'prepare') {
+      try {
+        const decl = extractPrepare(call);
+        if (decl && !table.has(decl.descriptor.id)) {
+          table.set(decl.descriptor.id, { kind: decl.kind, descriptor: decl.descriptor });
+        }
+      } catch {
+        /* malformed prepare: surfaced at validate/eval */
       }
     } else if (call.callee === 'bind') {
-      // A malformed `bind` is reported by `validate`/`run`, not here — the static collection must
-      // never throw (it feeds `validate`, which is contractually non-throwing).
       try {
         const decl = extractBinding(call);
         if (decl && !table.has(decl.descriptor.id)) {
           table.set(decl.descriptor.id, { kind: decl.kind, descriptor: decl.descriptor });
         }
       } catch {
-        /* malformed bind: surfaced by validateBind / evalBind */
+        /* malformed bind: surfaced at validate/eval */
       }
     }
   }
@@ -109,22 +118,18 @@ function children(expr) {
 }
 
 /**
- * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). Two forms:
- *  - `need('cap')` — a string shorthand: the capability whose contract supplies the rest;
- *  - `need({ capability, type?, ... })` — the full descriptor object.
- *
- * When the call is the descriptor of a `bind(name, need(...))`, the binding `name` supplies the
- * `id` (so it need not be repeated); otherwise the descriptor must carry a string `id`.
+ * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). The descriptor must
+ * carry a string `id` and a `capability`; the **capability sugar** `cap('id')` produces this
+ * shape at parse time (`need({ id:'id', capability:'cap' })`), so it is the idiomatic short form.
  *
  * The `type` is left **undefined** when the descriptor omits it, so a capability contract can fill
  * it later (see {@link applyCapabilityContract}); the final fallback to `string()` is applied
  * there. The merge is intentionally NOT done here — this pass is config-free and memoized.
  *
  * @param {import('../ast/nodes.js').CallNode} call
- * @param {string} [idFromBind]  The enclosing `bind` name, injected as the requirement `id`.
  * @returns {import('./evaluator.js').RequirementDescriptor}
  */
-export function extractRequirement(call, idFromBind) {
+export function extractRequirement(call) {
   const arg = call.args[0];
   /** @type {Record<string, unknown>} */
   let d;
@@ -135,7 +140,6 @@ export function extractRequirement(call, idFromBind) {
   } else {
     throw syntax('need(...) expects a capability name string or a descriptor object', call);
   }
-  if (idFromBind !== undefined && d.id === undefined) d.id = idFromBind;
   if (typeof d.id !== 'string') throw syntax("need descriptor needs a string 'id'", call);
   if (typeof d.capability !== 'string') {
     throw syntax(`need '${d.id}' needs a 'capability'`, call);
@@ -244,15 +248,13 @@ function isConstant(expr) {
 }
 
 /**
- * Extracts a binding from a `bind('name', descriptor)` call (SPEC §1.7). The nature of the
- * binding is the kind of its descriptor argument:
- *  - a type-builder (`int()`, `string().constraints({...})`) ⇒ a pure value (kind `'var'`);
- *  - `need({...})` ⇒ a requirement (kind `'require'`), with `id` taken from `name`;
- *  - `action({...})` ⇒ an effect (kind `'action'`); the descriptor keeps the `action` Call node
- *    so the evaluator can record it into the action plan when the bound name is referenced.
+ * Extracts a **value** binding from a `bind('name', type)` call (SPEC §1.7). `bind` names a pure
+ * value whose descriptor is a type-builder (`int()`, `string().constraints({...})`); the `name`
+ * is its id, read **plain** (`${ name }`) elsewhere. A `need(...)`/`action(...)` descriptor is
+ * rejected — those are declared with `prepare(...)` (which carries their own id).
  *
  * @param {import('../ast/nodes.js').CallNode} call
- * @returns {{ kind: 'var'|'require'|'action', descriptor: any } | undefined}
+ * @returns {{ kind: 'var', descriptor: any }}
  */
 export function extractBinding(call) {
   const nameNode = call.args[0];
@@ -261,19 +263,45 @@ export function extractBinding(call) {
   }
   const id = /** @type {string} */ (/** @type {any} */ (nameNode).value);
   const descNode = /** @type {any} */ (call.args[1]);
-  if (!descNode)
-    throw syntax(`bind '${id}' needs a descriptor (a type, need(...) or action(...))`, call);
-
-  if (descNode.kind === 'Call' && descNode.callee === 'need') {
-    return { kind: 'require', descriptor: extractRequirement(descNode, id) };
+  if (!descNode) throw syntax(`bind '${id}' needs a type descriptor`, call);
+  if (descNode.kind === 'Call' && (descNode.callee === 'need' || descNode.callee === 'action')) {
+    throw syntax(
+      `bind '${id}' takes a value type, not ${descNode.callee}(...); use prepare(${descNode.callee}(...)) instead`,
+      call
+    );
   }
-  if (descNode.kind === 'Call' && descNode.callee === 'action') {
-    // The action descriptor is evaluated lazily by the evaluator; statically we keep the id and
-    // the AST node so a `Ref` to `id` can run `evalAction` on it.
-    return { kind: 'action', descriptor: { id, actionNode: descNode } };
-  }
-  // Otherwise the descriptor is a type-builder ⇒ a pure value binding (internal kind `'var'`).
   return { kind: 'var', descriptor: { id, type: evalTypeExpr(descNode) } };
+}
+
+/**
+ * Extracts a lazily-declared need/action from a `prepare(need(...) | action(...))` call (SPEC §1.7).
+ * `prepare` names a requirement or effect for later reuse **by its own id** (carried by the inner
+ * descriptor); it emits nothing and is referenced plain (`${ id }`). The need/action is *not*
+ * activated at the `prepare` site — only where its id is referenced.
+ *
+ * @param {import('../ast/nodes.js').CallNode} call
+ * @returns {{ kind: 'require'|'action', descriptor: any }}
+ */
+export function extractPrepare(call) {
+  const descNode = /** @type {any} */ (call.args[0]);
+  if (
+    !descNode ||
+    descNode.kind !== 'Call' ||
+    (descNode.callee !== 'need' && descNode.callee !== 'action')
+  ) {
+    throw syntax('prepare(...) expects need(...) or action(...)', call);
+  }
+  if (descNode.callee === 'need') {
+    return { kind: 'require', descriptor: extractRequirement(descNode) };
+  }
+  // action: a `prepare`d action must carry its own literal `id` (the name it is referenced by).
+  // Reuse the shared static reader (which also drops `__proto__` keys) rather than re-scanning.
+  const id = extractActionStatic(descNode).id;
+  if (id === undefined) {
+    throw syntax("prepare(action(...)) needs a string 'id' in the descriptor", descNode);
+  }
+  // Keep the id and the AST node so a `Ref` to the id can run `evalAction` on it.
+  return { kind: 'action', descriptor: { id, actionNode: descNode } };
 }
 
 /**

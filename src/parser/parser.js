@@ -531,7 +531,13 @@ function makeCall(ctx, calleeRef, args) {
 }
 
 /**
- * Adds `capability: '<name>'` to the descriptor (first arg) of a capability-sugar call.
+ * Normalizes the argument of a capability-sugar call into a `need` descriptor carrying
+ * `capability: '<name>'` (SPEC §1.6). Besides the full object, a string shorthand is accepted:
+ *  - `cap('id')` — a bare string literal is the requirement **id** →
+ *    `{ id:'id', capability:'<name>' }` (the rest of the contract is inherited from the
+ *    capability, SPEC §1.6);
+ *  - `cap({...})` — an explicit descriptor object, into which `capability` is injected.
+ * Any other shape is left untouched for `validate`/`run` to flag.
  * @param {import('../ast/nodes.js').Expr[]} args
  * @param {string} name
  * @param {import('../ast/nodes.js').Position} position
@@ -539,17 +545,31 @@ function makeCall(ctx, calleeRef, args) {
  */
 function injectCapability(args, name, position) {
   const first = args[0];
-  if (!first || first.kind !== 'ObjectLit') return args; // malformed; validate will flag
+  /** @type {import('../ast/nodes.js').ObjectEntry} */
+  const capabilityEntry = {
+    key: 'capability',
+    value: { kind: 'Lit', position, type: 'string', value: name },
+  };
+
+  // `cap('id')` — a bare string literal is the requirement id.
+  if (first && first.kind === 'Lit' && /** @type {any} */ (first).type === 'string') {
+    /** @type {import('../ast/nodes.js').ObjectLitNode} */
+    const descriptor = {
+      kind: 'ObjectLit',
+      position: first.position,
+      entries: [{ key: 'id', value: first }, capabilityEntry],
+    };
+    return [descriptor, ...args.slice(1)];
+  }
+
+  if (!first || first.kind !== 'ObjectLit') return args; // other shapes: validate/run will flag
   const hasCapability = first.entries.some((e) => e.key === 'capability');
   if (hasCapability) return args;
   /** @type {import('../ast/nodes.js').ObjectLitNode} */
   const descriptor = {
     kind: 'ObjectLit',
     position: first.position,
-    entries: [
-      ...first.entries,
-      { key: 'capability', value: { kind: 'Lit', position, type: 'string', value: name } },
-    ],
+    entries: [...first.entries, capabilityEntry],
   };
   return [descriptor, ...args.slice(1)];
 }

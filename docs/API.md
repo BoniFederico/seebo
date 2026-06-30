@@ -186,8 +186,10 @@ analyze-derived `phase?` and `options?` (extracted from `type.constraints.values
 forwarded opaquely to the capability provider; its value may reference another binding (SPEC §2.4),
 in which case the dependency is resolved first (the analyze graph orders them into phases).
 
-Declared with `need(...)`; named for reuse with `bind(name, need(...))`. A capability may declare a
-contract (`type`/`constraints`/`label`) that `need('cap')` inherits (template overrides win).
+Declared inline with `need({ id, capability })` (or the sugar `cap('id')`), or **lazily** for reuse
+with `prepare(need(...))`. A capability may declare a contract (`type`/`constraints`/`label`) that
+the sugar `cap('id')` inherits (template overrides win). Note: `bind(name, type)` names a **pure
+value**, not a need.
 
 ### `Diagnostic` (IMPL Appendix A)
 

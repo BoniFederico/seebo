@@ -68,6 +68,22 @@ test('SPEC §1.6 — capability producer is normalized to need', () => {
   });
 });
 
+// SPEC §1.6 — capability sugar string shorthand: `cap('id')` is normalized to
+// need({ id:'id', capability:'<name>' }) at parse time (the bare string is the requirement id).
+test("SPEC §1.6 — capability sugar string shorthand cap('id') sets the id", () => {
+  const engine = realEngine({ capabilities: { textbox: () => undefined } });
+  const ast = stripPositions(engine.parse("${ textbox('ciao') }"));
+  const expr = /** @type {any} */ (ast.nodes[0]).expr;
+  assert.equal(expr.callee, 'need');
+  assert.deepEqual(
+    expr.args[0].entries.map((/** @type {any} */ e) => ({ key: e.key, value: e.value.value })),
+    [
+      { key: 'id', value: 'ciao' },
+      { key: 'capability', value: 'textbox' },
+    ]
+  );
+});
+
 // SPEC §1.5/§1.7 — array literal with constraints as a choice list.
 test('SPEC §1.7 — array().constraints({ values: [...] }) choice list', () => {
   const engine = realEngine();

@@ -208,6 +208,10 @@ export function validate(template, config) {
       // The bound type is the descriptor's type; the descriptor (2nd arg) is walked by validateBind.
       return declaredBindType(call);
     }
+    if (callee === 'prepare') {
+      validatePrepare(call);
+      return 'string'; // a declaration emits the empty string
+    }
     if (callee === 'action') {
       validateAction(call);
       for (const arg of call.args) walk(arg);
@@ -361,19 +365,16 @@ export function validate(template, config) {
     const desc = /** @type {any} */ (call.args[1]);
     if (!desc) return 'unknown';
     // Side-effect-free type inference (diagnostics are emitted by validateBind, not here):
-    if (desc.kind === 'Call') {
-      if (desc.callee === 'need') return declaredCallType(desc); // requirement's (inherited) type
-      if (desc.callee === 'action') return 'string'; // an action binding renders the empty string
-      if (TYPE_NAMES.has(desc.callee)) return /** @type {any} */ (desc.callee); // bare builder `int()`
-    }
+    if (desc.kind === 'Call' && TYPE_NAMES.has(desc.callee))
+      return /** @type {any} */ (desc.callee); // bare builder `int()`
     if (desc.kind === 'Method') return builderBaseType(desc); // builder chain root, e.g. int().default(1)
     return 'unknown';
   }
 
   /**
-   * Validates a `bind('name', descriptor)` declaration: the name must be a string literal, and a
-   * descriptor must be present. The descriptor (a type-builder, `need(...)` or `action(...)`) is
-   * walked so its own diagnostics (capability/action checks) are reported.
+   * Validates a `bind('name', type)` value-binding declaration: the name must be a string literal
+   * and the descriptor must be a **type-builder**. A `need(...)`/`action(...)` descriptor is
+   * rejected with a clear message pointing to `prepare(...)`.
    * @param {import('../ast/nodes.js').CallNode} call
    */
   function validateBind(call) {
@@ -384,34 +385,47 @@ export function validate(template, config) {
     const desc = /** @type {any} */ (call.args[1]);
     if (desc === undefined) {
       diagnostics.push(
-        diag(
-          DiagnosticCode.SYNTAX_ERROR,
-          call,
-          'bind(...) needs a descriptor (type, need(...) or action(...))'
-        )
+        diag(DiagnosticCode.SYNTAX_ERROR, call, 'bind(...) needs a type descriptor')
       );
       return;
     }
-    // The descriptor must be a type-builder, `need(...)` or `action(...)`; anything else (a bare
-    // literal, an arbitrary expression) is reported clearly rather than leaving the bound name
-    // unregistered (which would surface as a misleading `UNDECLARED_NAME` at the use site).
-    if (!isBindDescriptor(desc)) {
+    if (desc.kind === 'Call' && (desc.callee === 'need' || desc.callee === 'action')) {
       diagnostics.push(
         diag(
           DiagnosticCode.SYNTAX_ERROR,
           desc,
-          'bind(...) descriptor must be a type, need(...) or action(...)'
+          `bind(...) takes a value type, not ${desc.callee}(...); use prepare(${desc.callee}(...)) instead`
         )
       );
       return;
     }
-    // Walk `need(...)`/`action(...)` so their own diagnostics (capability/action checks) surface.
-    // A type-builder descriptor (`int().constraints({...})`) is NOT walked as an expression: its
-    // chained `.constraints`/`.format`/`.default` are builder configuration, not value methods, so
-    // walking it would mis-report `UNKNOWN_METHOD`. Its well-formedness is checked at run/extract.
-    if (desc.kind === 'Call' && (desc.callee === 'need' || desc.callee === 'action')) {
-      walk(desc);
+    // The descriptor must be a type-builder; anything else (a bare literal, an arbitrary
+    // expression) is reported clearly rather than leaving the bound name unregistered (which would
+    // surface as a misleading `UNDECLARED_NAME` at the use site). A type-builder is NOT walked as
+    // an expression — its chained `.constraints`/`.format`/`.default` are builder configuration,
+    // not value methods, so walking it would mis-report `UNKNOWN_METHOD`.
+    if (!isValueBuilder(desc)) {
+      diagnostics.push(
+        diag(DiagnosticCode.SYNTAX_ERROR, desc, 'bind(...) descriptor must be a value type')
+      );
     }
+  }
+
+  /**
+   * Validates a `prepare(need(...) | action(...))` declaration: the argument must be a `need(...)`
+   * or `action(...)` call, which is then walked so its own diagnostics (capability/action checks)
+   * surface.
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validatePrepare(call) {
+    const desc = /** @type {any} */ (call.args[0]);
+    if (!desc || desc.kind !== 'Call' || (desc.callee !== 'need' && desc.callee !== 'action')) {
+      diagnostics.push(
+        diag(DiagnosticCode.SYNTAX_ERROR, call, 'prepare(...) expects need(...) or action(...)')
+      );
+      return;
+    }
+    walk(desc);
   }
 
   /**
@@ -483,9 +497,16 @@ export function validate(template, config) {
       );
     }
 
-    // Duplicate id (only statically detectable for literal ids).
+    // Duplicate id (only statically detectable for literal ids). An action id is dropped silently
+    // when it collides with an earlier action (seenActionIds) OR with a value/need binding of the
+    // same id: the symbol table is keyed by id, first-wins, so the colliding action never enters
+    // the plan. Both cases are flagged so the effect does not vanish without a diagnostic.
     if (info.id !== undefined) {
-      if (seenActionIds.has(info.id)) {
+      const claimedByBinding = symbols.get(info.id);
+      const collides =
+        seenActionIds.has(info.id) ||
+        (claimedByBinding !== undefined && claimedByBinding.kind !== 'action');
+      if (collides) {
         diagnostics.push(
           diag(DiagnosticCode.DUPLICATE_ACTION_ID, call, `duplicate action id '${info.id}'`, {
             id: info.id,
@@ -632,18 +653,17 @@ function isLiteralKind(expr) {
 }
 
 /**
- * `true` when `expr` is a valid `bind` descriptor: `need(...)`, `action(...)`, or a type-builder
- * (`int()`, `string().constraints({...})` — a `Call` to a builtin type, or a `Method` chain rooted
- * in one). Anything else (a bare literal, an arbitrary expression) is rejected by `validate`.
+ * `true` when `expr` is a value type-builder usable as a `bind` descriptor: `int()`,
+ * `string().constraints({...})` — a `Call` to a builtin type, or a `Method` chain rooted in one.
+ * Anything else (a bare literal, `need(...)`/`action(...)`, an arbitrary expression) is rejected.
  * @param {import('../ast/nodes.js').Expr} expr
  * @returns {boolean}
  */
-function isBindDescriptor(expr) {
+function isValueBuilder(expr) {
   const e = /** @type {any} */ (expr);
   if (!e || typeof e !== 'object') return false;
-  if (e.kind === 'Call')
-    return e.callee === 'need' || e.callee === 'action' || TYPE_NAMES.has(e.callee);
-  if (e.kind === 'Method') return isBindDescriptor(e.receiver); // builder chain (.constraints/.default/…)
+  if (e.kind === 'Call') return TYPE_NAMES.has(e.callee);
+  if (e.kind === 'Method') return isValueBuilder(e.receiver); // builder chain (.constraints/.default/…)
   return false;
 }
 
