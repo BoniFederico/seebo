@@ -241,8 +241,10 @@ duration(secondi)         // durata da un numero (con segno) di secondi → dura
 // Accesso al mondo esterno (§1.6)
 need(descrittore)         // richiesta di un valore esterno → il valore, o un Need se assente
 
-// Binding con nome (§1.7) — descrittore = un tipo, need(...) o action(...)
-bind(nome, descrittore)
+// Binding di valore (§1.7) — descrittore = un type builder
+bind(nome, tipo)
+// Dichiarazione lazy di need/action (§1.7), riusabile per id
+prepare(need(...) | action(...))
 
 // Librerie (namespace, caricate pigramente)
 fake.int()   fake.full_name()   fake.email()   ...
@@ -361,14 +363,14 @@ requirement, oltre a produrre il proprio valore *sul posto*, lo **registra per n
 ### Il Requirement Descriptor
 
 Un requirement si dichiara con un **descrittore**, un oggetto ricco che permette al
-client di costruire UI e orchestrazioni intelligenti. **`capability` è sempre
-obbligatorio**; `id` può essere fornito dal nome del `bind` e `type` può essere
-ereditato dal **contratto della capability** (vedi sotto); gli altri campi sono
+client di costruire UI e orchestrazioni intelligenti. **`id` e `capability` sono
+obbligatori**; la sugar `cap('id')` fornisce entrambi (`input('amount')`). Il `type` può
+essere ereditato dal **contratto della capability** (vedi sotto); gli altri campi sono
 facoltativi.
 
 | Campo | Obbl. | Significato |
 |---|---|---|
-| `id` | ✓* | identificatore univoco del requirement (chiave nello stato). *Fornito dal nome quando si usa `bind('id', need(...))`* |
+| `id` | ✓ | identificatore univoco del requirement (chiave nello stato). *La sugar `cap('id')` lo fornisce come stringa* |
 | `type` | | il tipo seebo atteso, come *builder* (`string()`, `array().constraints({…})`): porta con sé format, constraints ed eventuale default. *Se omesso, è ereditato dal contratto della capability, altrimenti `string()`* |
 | `capability` | ✓ | la **capacità** che lo può soddisfare (`user`, `crm`, `weather`, …) |
 | `label` | | etichetta breve per la UI (ereditabile dal contratto della capability) |
@@ -381,8 +383,8 @@ facoltativi.
 
 > **Contratto della capability (§2.2).** Una capability registrata con
 > `defineCapability({ type, label, description, resolve })` dichiara un **contratto**
-> statico che `need('cap')` eredita: il template non deve ripetere il tipo. In caso di
-> conflitto **vince il template**. Una capability registrata come semplice funzione non
+> statico che la sugar `cap('id')` eredita: il template non deve ripetere il tipo. In caso
+> di conflitto **vince il template**. Una capability registrata come semplice funzione non
 > porta contratto (il `type` ripiega su `string()`).
 
 > **Nota di coerenza (cardinalità).** Non esiste un campo `multiple`: la cardinalità si
@@ -464,28 +466,30 @@ generare requirement (entrambi i membri sono valori puri). Il **Requirement Grap
 da cliente". Il client può scegliere se risolvere tutto insieme o un livello alla
 volta: **il motore resta identico**.
 
-## 1.7 Variabili, requirement e liste a scelta
+## 1.7 Dichiarazioni, requirement e liste a scelta
 
-### Binding (`bind`) e requirement (`need`)
+### Dichiarazioni: `need`, `bind`, `prepare`
 
-`bind(nome, descrittore)` introduce un **valore con nome**; la natura è il *kind* del
-descrittore. `need(descrittore)` dichiara un requirement (anche inline, senza `bind`):
+Tre forme dichiarano ciò che il template usa; tutte si leggono poi **per nome** (`${ nome }`),
+e un riferimento a un nome non dichiarato è `UNDECLARED_NAME`:
 
-- **`bind('api_key', string())`** — valore noto *prima* della valutazione (config,
-  segreto, costante d'ambiente del documento). **Immutabile**: non cambia durante la
-  conversazione. Se manca, si usa il `default` del descrittore o si segnala errore.
-- **`bind('nome', need(descrittore))`** (o `need(descrittore)` inline) — valore che può
-  arrivare *durante* la conversazione, via capability. Genera un `Need` finché non è
-  soddisfatto. Il nome del `bind` fornisce l'`id` del requirement.
-- **`bind('t', action(descrittore))`** — un **effetto** (§2.8), attivato dove il nome è
-  referenziato.
-
-Dopo la dichiarazione, il valore si legge **per nome** (`${ nome }`); un riferimento a un
-nome non dichiarato è `UNDECLARED_NAME`.
+- **`need(descrittore)`** — un requirement: valore che può arrivare *durante* la conversazione,
+  via capability. Usato **inline** è **eager**: chiede il valore e lo renderizza dove appare.
+  Genera un `Need` finché non è soddisfatto. La sugar `cap('id')` è la forma breve
+  (`input('amount')` ≡ `need({ id:'amount', capability:'input' })`).
+- **`bind('api_key', string())`** — un **valore puro** con nome: noto *prima* della valutazione
+  (config, segreto, costante d'ambiente). **Immutabile**. Il secondo argomento è un *type builder*;
+  se manca, si usa il `default` del descrittore o si segnala errore. `bind` accetta **solo** un
+  tipo, non `need`/`action`.
+- **`prepare(need(...) | action(...))`** — dichiara un need/action **lazy**, riusabile per il
+  proprio `id` (nel descrittore). Non emette nulla e **non** attiva nulla nel punto del `prepare`:
+  il need viene chiesto, e l'action attivata, solo dove il loro `id` è referenziato.
 
 ```
-bind('api_key', string())                                       // variabile statica
-need({ id:'nome', type:string(), capability:'user', label:'Il tuo nome' })  // requirement
+bind('api_key', string())                                       // valore statico
+need({ id:'nome', type:string(), capability:'user', label:'Il tuo nome' })  // requirement (eager, inline)
+prepare(need({ id:'nome', capability:'user' }))                 // requirement (lazy)
+prepare(action({ id:'ticket', type:'jira.createIssue', input:{ … } }))  // effetto (lazy)
 ${ nome }                                                      // riferimento per nome
 ```
 
@@ -507,7 +511,7 @@ che è un *builder* di tipo (coerenza con i binding di valore).
 
 ### Regola di *scope statico*
 
-Le dichiarazioni (`bind`, `need`) sono **raccolte staticamente** dal testo del
+Le dichiarazioni (`need`, `bind`, `prepare`) sono **raccolte staticamente** dal testo del
 template (e dei template inclusi), **indipendentemente** dal fatto che il ramo in cui
 compaiono venga poi valutato. Di conseguenza:
 

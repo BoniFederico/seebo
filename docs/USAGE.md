@@ -29,32 +29,35 @@ console.log(res.output); // "Order 42"
 (`tokenize`, `parse`, `validate`, `analyze`, `start`, `run`, `expand`, `finalize`, `drive`,
 `stebo`).
 
-## Bindings: `bind` and `need` (SPEC §1.6/§1.7)
+## Declarations: `need`, `bind`, `prepare` (SPEC §1.6/§1.7)
 
 A template declares the data, values and effects it depends on, and references them **plain** by
 name afterwards (`${ name }`). A reference to an undeclared name is an `UNDECLARED_NAME` error.
 
-- `need({ id, capability, type?, ... })` declares missing data resolved by a capability; the short
-  form `need('cap')` inherits the capability's contract. Used inline it shows the value where it
-  appears.
-- `bind(name, descriptor)` introduces a **named** binding for reuse; the descriptor's kind decides
-  its nature:
-  - a **type-builder** (`int()`, `string().constraints({ min: 0 })`) → a pure value;
-  - **`need(...)`** → missing data (the `name` becomes the requirement `id`);
-  - **`action(...)`** → an effect, activated where the bound name is referenced (see
-    [`ACTIONS.md`](ACTIONS.md)).
+- `need({ id, capability, type?, ... })` — missing data resolved by a capability. The **capability
+  sugar** `cap('id')` is the short form: `input('amount')` ≡ `need({ id:'amount', capability:'input' })`,
+  inheriting the capability's contract. Used **inline**, a need is **eager** — it asks for the value
+  and renders it where it appears.
+- `bind(name, type)` — names a **pure value** (a type-builder). The name is its id, read plain.
+- `prepare(need(...) | action(...))` — declares a need/action **lazily** for reuse by its own `id`
+  (carried by the descriptor). It emits nothing and is **not** activated at the `prepare` site —
+  only where its id is referenced (`${ id }`). An `action(...)` so declared activates where its id
+  appears (see [`ACTIONS.md`](ACTIONS.md)).
+
+The distinction between **eager use** and **lazy declaration** matters:
 
 ```js
 const engine = createEngine({ capabilities: { input: () => undefined } });
 
-const tpl = [
-  "${ bind('vat', float().default(0.22)) }", // a pure value
-  "${ bind('amount', need('input')) }", // missing data (capability contract supplies the type)
-  'Total: ${ amount } + VAT ${ amount * vat }',
-].join('');
+// Eager: the inline need asks for `amount` here and renders it.
+engine.run(engine.start("${ input('amount') }")); // status 'waiting', pending ['amount']
 
-let state = engine.run(engine.start(tpl));
-state.pending.map((r) => r.id); // ['amount']  — declared once, read plain everywhere
+// Lazy: prepare declares `amount`; it is requested only if/where it is referenced.
+const tpl =
+  "${ prepare(input('amount')) }" + // declared, not yet requested
+  "${ bind('vat', float().default(0.22)) }" + // a pure value
+  '${ 1 == 2 ? amount : "n/a" }'; // amount is in an untaken branch ⇒ never requested
+engine.run(engine.start(tpl)); // status 'completed' — no pending
 ```
 
 A capability `args` value may depend on another binding; the dependency is resolved **first** and
@@ -62,8 +65,8 @@ its value forwarded to the provider (`need.args`), with `analyze` ordering the t
 
 ```js
 // region resolves in phase 1; city's provider receives the resolved region via args in phase 2.
-"${ bind('region', need('input')) }" +
-  "${ bind('city', need({ capability:'geo', args:{ region: region } })) }${ city }";
+"${ prepare(input('region')) }" +
+  "${ prepare(need({ id:'city', capability:'geo', args:{ region: region } })) }${ city }";
 ```
 
 ## Extensibility (SPEC §2.6)
@@ -150,8 +153,8 @@ const engine = createEngine({
   },
 });
 
-// Template (capability sugar):  ${ weather({ id:'today' }) }
-// Or via a binding, read plain:  ${ bind('today', need('weather')) }Forecast: ${ today }
+// Template (capability sugar):  ${ weather('today') }
+// Or declared lazily, read plain:  ${ prepare(weather('today')) }Forecast: ${ today }
 ```
 
 > The data a capability needs comes from the descriptor's `args` (forwarded opaquely to

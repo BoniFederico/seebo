@@ -42,6 +42,7 @@ import {
   collectDeclarations,
   extractRequirement,
   extractBinding,
+  extractPrepare,
   applyCapabilityContract,
 } from './symbols.js';
 import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
@@ -355,12 +356,9 @@ function resolveRef(name, ctx, node) {
 /** @param {{ kind: string, descriptor: any }} decl @param {EvalContext} ctx */
 function resolveDeclaration(decl, ctx) {
   if (decl.kind === 'var') return resolveValueOrDefault(decl.descriptor, ctx, true);
-  // An `action` binding referenced by name (`${ ticket }`) records the action into the plan and
+  // A prepared action referenced by its id (`${ ticket }`) records the action into the plan and
   // emits nothing — the same effect as an inline `action({...})`, deferred to the reference site.
-  // The binding name supplies the action `id`.
-  if (decl.kind === 'action') {
-    return evalAction(decl.descriptor.actionNode, ctx, decl.descriptor.id);
-  }
+  if (decl.kind === 'action') return evalAction(decl.descriptor.actionNode, ctx);
   return resolveRequirement(decl.descriptor, ctx);
 }
 
@@ -526,6 +524,7 @@ function evalCall(e, ctx) {
     return resolveRequirement(descriptor, ctx);
   }
   if (e.callee === 'bind') return evalBind(e, ctx);
+  if (e.callee === 'prepare') return evalPrepare(e, ctx);
   if (e.callee === 'action') return evalAction(e, ctx);
   if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
   if (e.callee === 'date') return evalDate(e, ctx);
@@ -571,15 +570,31 @@ function evalCall(e, ctx) {
 }
 
 /**
- * Evaluates a `bind(name, descriptor)` declaration (SPEC §1.7). A binding is a pure declaration:
- * the name is registered statically by {@link collectDeclarations}, so here it emits nothing. The
- * bound value/need/effect is resolved or activated only where the name is referenced (`${ name }`).
- * Validates the call shape so a malformed `bind` is a runtime error rather than a silent no-op.
+ * Evaluates a `bind(name, type)` value-binding declaration (SPEC §1.7). A declaration is lazy: the
+ * name is registered statically by {@link collectDeclarations}, so here it emits nothing; the value
+ * is resolved only where the name is referenced (`${ name }`). Validates the call shape so a
+ * malformed `bind` is a runtime error rather than a silent no-op.
  * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
  */
 function evalBind(e, _ctx) {
   try {
     extractBinding(e); // shape validation; the binding is already registered in the symbol table
+  } catch (ex) {
+    return errFrom(ex, e);
+  }
+  return ok(makeString(''));
+}
+
+/**
+ * Evaluates a `prepare(need(...) | action(...))` declaration (SPEC §1.7). Like {@link evalBind} it
+ * is a **lazy declaration**: the need/action is registered statically (by its own `id`) and emits
+ * nothing here; it is resolved/activated only where its id is referenced (`${ id }`). Validates the
+ * call shape so a malformed `prepare` is a runtime error rather than a silent no-op.
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
+ */
+function evalPrepare(e, _ctx) {
+  try {
+    extractPrepare(e); // shape validation; the declaration is already in the symbol table
   } catch (ex) {
     return errFrom(ex, e);
   }
@@ -597,12 +612,9 @@ function evalBind(e, _ctx) {
  * input suspends; the `Need` is still recorded (so the normal suspend/resume flow drives it)
  * and the descriptor is recorded with `status: 'blocked'` and the resolved-so-far input.
  *
- * When activated through a `bind(name, action({...}))` reference, `idFromBind` supplies the
- * action `id` (so it need not be repeated in the descriptor).
- *
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @param {string} [idFromBind] @returns {EvalResult}
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @returns {EvalResult}
  */
-function evalAction(e, ctx, idFromBind) {
+function evalAction(e, ctx) {
   const obj = e.args[0];
   if (!obj || obj.kind !== 'ObjectLit') {
     return err(DiagnosticCode.SYNTAX_ERROR, e, 'action(...) expects a descriptor object');
@@ -610,7 +622,6 @@ function evalAction(e, ctx, idFromBind) {
 
   /** @type {Record<string, unknown>} */
   const fields = {};
-  if (idFromBind !== undefined) fields.id = idFromBind;
   let blockedNeed = null;
   for (const entry of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
     if (entry.key === '__proto__') continue;

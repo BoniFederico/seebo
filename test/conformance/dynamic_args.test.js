@@ -25,8 +25,8 @@ function geoEngine() {
 }
 
 const DEP_TPL =
-  `\${ bind('region', need('pick')) }` +
-  `\${ bind('city', need({ capability:'geo', args:{ region: region } })) }\${ city }`;
+  `\${ prepare(pick('region')) }` +
+  `\${ prepare(need({ id:'city', capability:'geo', args:{ region: region } })) }\${ city }`;
 
 test('analyze reports the data-dependency edge and orders needs into phases', () => {
   const analysis = geoEngine().analyze(DEP_TPL);
@@ -78,15 +78,15 @@ test('the resolved dependency value reaches the provider via need.args', async (
 
 test('member access in args (region.code) creates the same dependency edge', () => {
   const tpl =
-    `\${ bind('region', need('pick')) }` +
-    `\${ bind('zone', need({ capability:'geo', args:{ code: region } })) }\${ zone }`;
+    `\${ prepare(pick('region')) }` +
+    `\${ prepare(need({ id:'zone', capability:'geo', args:{ code: region } })) }\${ zone }`;
   const analysis = geoEngine().analyze(tpl);
   assert.deepEqual(analysis.requirementGraph.edges, [['region', 'zone']]);
 });
 
 test('static args (no refs) do not create a dependency and resolve immediately', () => {
   const engine = geoEngine();
-  const tpl = `\${ bind('c', need({ capability:'geo', args:{ q: 'fixed' } })) }\${ c }`;
+  const tpl = `\${ prepare(need({ id:'c', capability:'geo', args:{ q: 'fixed' } })) }\${ c }`;
   const analysis = engine.analyze(tpl);
   assert.deepEqual(analysis.requirementGraph.edges, []);
   const state = engine.run(engine.start(tpl));
@@ -96,25 +96,25 @@ test('static args (no refs) do not create a dependency and resolve immediately',
 
 test('a transitive chain a→b→c resolves in three phases', () => {
   const tpl =
-    `\${ bind('a', need('pick')) }` +
-    `\${ bind('b', need({ capability:'geo', args:{ a: a } })) }` +
-    `\${ bind('c', need({ capability:'geo', args:{ b: b } })) }\${ c }`;
+    `\${ prepare(pick('a')) }` +
+    `\${ prepare(need({ id:'b', capability:'geo', args:{ a: a } })) }` +
+    `\${ prepare(need({ id:'c', capability:'geo', args:{ b: b } })) }\${ c }`;
   const analysis = geoEngine().analyze(tpl);
   assert.equal(analysis.maxPhases, 3);
 });
 
 test('an args dependency cycle is detected by analyze', () => {
   const tpl =
-    `\${ bind('a', need({ capability:'geo', args:{ x: b } })) }` +
-    `\${ bind('b', need({ capability:'geo', args:{ y: a } })) }\${ a }\${ b }`;
+    `\${ prepare(need({ id:'a', capability:'geo', args:{ x: b } })) }` +
+    `\${ prepare(need({ id:'b', capability:'geo', args:{ y: a } })) }\${ a }\${ b }`;
   const analysis = geoEngine().analyze(tpl);
   assert.ok(analysis.potentialCycles.length > 0);
 });
 
 test('an args dependency cycle fails the run with CYCLE_DETECTED (no infinite loop)', () => {
   const tpl =
-    `\${ bind('a', need({ capability:'geo', args:{ x: b } })) }` +
-    `\${ bind('b', need({ capability:'geo', args:{ y: a } })) }\${ a }\${ b }`;
+    `\${ prepare(need({ id:'a', capability:'geo', args:{ x: b } })) }` +
+    `\${ prepare(need({ id:'b', capability:'geo', args:{ y: a } })) }\${ a }\${ b }`;
   const state = geoEngine().run(geoEngine().start(tpl));
   assert.equal(state.status, 'failed');
   assert.ok((state.diagnostics ?? []).some((d) => d.code === DiagnosticCode.CYCLE_DETECTED));
@@ -122,7 +122,7 @@ test('an args dependency cycle fails the run with CYCLE_DETECTED (no infinite lo
 
 test('args referencing an undeclared binding is UNDECLARED_NAME', () => {
   const diags = geoEngine().validate(
-    `\${ bind('c', need({ capability:'geo', args:{ region: nope } })) }\${ c }`
+    `\${ prepare(need({ id:'c', capability:'geo', args:{ region: nope } })) }\${ c }`
   );
   assert.ok(diags.some((d) => d.code === DiagnosticCode.UNDECLARED_NAME));
 });
@@ -131,7 +131,7 @@ test('args dependency on a pure value binding is resolved and forwarded', async 
   const engine = geoEngine();
   const tpl =
     `\${ bind('vat', string().default('22%')) }` +
-    `\${ bind('c', need({ capability:'geo', args:{ rate: vat } })) }\${ c }`;
+    `\${ prepare(need({ id:'c', capability:'geo', args:{ rate: vat } })) }\${ c }`;
   const driven = await engine.drive(engine.start(tpl));
   assert.equal(driven.status, 'completed');
   assert.match(driven.output ?? '', /"rate":"22%"/);

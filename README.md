@@ -31,11 +31,11 @@ Everything is typed (`int`, `float`, `bool`, `string`, `datetime`, `duration`, `
 `constraints`. Missing data declared via `need(...)` / capability sugar becomes a `Need`
 that suspends evaluation instead of throwing.
 
-A name is introduced with `bind(name, descriptor)` and read **plain** by name afterwards
-(`${ name }`). The descriptor's nature is its kind: a type-builder (a pure value), `need(...)`
-(missing data), or `action(...)` (an effect). A capability can declare its own contract
-(`type`/`constraints`) so `need('cap')` inherits it, and a capability `args` value may depend on
-another binding (resolved first, in phases). See [`docs/USAGE.md`](docs/USAGE.md).
+Names are introduced with `bind(name, type)` for a pure value, or `prepare(need(...) | action(...))`
+to declare a need/action lazily for reuse; both are read **plain** by name afterwards (`${ name }`).
+A capability can declare its own contract (`type`/`constraints`) so the sugar `cap('id')` inherits
+it, and a capability `args` value may depend on another binding (resolved first, in phases). See
+[`docs/USAGE.md`](docs/USAGE.md).
 
 A template can also declare external **effects** with `action({...})` (SPEC §2.8). The pure core
 only _prepares_ an action plan (`run(state).actions`); execution is explicit and host-driven via

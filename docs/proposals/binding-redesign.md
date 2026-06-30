@@ -1,7 +1,11 @@
 # Proposal: unified declarative binding (`bind` / `need`), capability contracts, and dynamic `args`
 
-> **Status:** Draft for review. No code written yet. This document captures the design agreed
-> during exploration so it can be reviewed before implementation.
+> **Status:** Implemented in 0.3.0, then **superseded** in 0.4.0. This document is kept as the
+> historical design record. The unified `bind(name, descriptor)` it describes (where `bind` wrapped
+> a value, a `need`, or an `action`) was split in 0.4.0: `bind(name, type)` is now **value-only**,
+> and need/action are declared lazily with `prepare(need(...) | action(...))` (carrying their own
+> id). The capability sugar also gained a string shorthand `cap('id')`. See the CHANGELOG and
+> `docs/USAGE.md` for the current model.
 >
 > **Scope:** a redesign of Seebo's _declarative surface_ — how a template declares the data,
 > values and effects it depends on. It does **not** change the pure/async split, the suspendable
