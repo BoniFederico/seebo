@@ -207,6 +207,23 @@ test('a prepared action whose input has an unresolved need is blocked and surfac
   assert.equal(actionsOf(state)[0].status, 'blocked');
 });
 
+test('a prepared action whose id collides with a value binding is flagged (not silently dropped)', () => {
+  const engine = createEngine();
+  engine.defineAction('svc.do', { execute: () => ({}) });
+  // The symbol table is first-wins, so the value binding 'x' would shadow the action and drop it
+  // from the plan; validate must surface the collision instead of letting the effect vanish.
+  const tpl =
+    `\${ bind('x', int().default(5)) }` +
+    `\${ prepare(action({ id:'x', type:'svc.do', input:{} })) }\${ x }`;
+  assert.ok(engine.validate(tpl).some((d) => d.code === 'DUPLICATE_ACTION_ID'));
+});
+
+test("repeated cap('id') for the same requirement is NOT a duplicate", () => {
+  const engine = engineWithInput();
+  // The same need referenced twice via the sugar is one requirement, not a collision.
+  assert.equal(engine.validate(`\${ input('amount') } / \${ input('amount') }`).length, 0);
+});
+
 /* --- references --- */
 
 test('a reference to an undeclared name is UNDECLARED_NAME (no implicit binding)', () => {

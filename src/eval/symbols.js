@@ -25,20 +25,20 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * is consumed read-only, so a cached one can be safely shared. With `optimizations.astCache`
  * the AST is stable across `run` passes, so the static scan runs once per template instead of
  * once per pass (IMPL §8/§11).
- * @type {WeakMap<import('../ast/nodes.js').Document, Map<string, { kind: 'require'|'var', descriptor: any }>>}
+ * @type {WeakMap<import('../ast/nodes.js').Document, Map<string, { kind: 'require'|'var'|'action', descriptor: any }>>}
  */
 const DECL_CACHE = new WeakMap();
 
 /**
  * Collects all bindings from a document (all branches, statically). Memoized by AST identity.
  * @param {import('../ast/nodes.js').Document} ast
- * @returns {Map<string, { kind: 'require'|'var', descriptor: import('./evaluator.js').RequirementDescriptor }>}
+ * @returns {Map<string, { kind: 'require'|'var'|'action', descriptor: import('./evaluator.js').RequirementDescriptor }>}
  */
 export function collectDeclarations(ast) {
   const cached = DECL_CACHE.get(ast);
   if (cached) return cached;
 
-  /** @type {Map<string, { kind: 'require'|'var', descriptor: any }>} */
+  /** @type {Map<string, { kind: 'require'|'var'|'action', descriptor: any }>} */
   const table = new Map();
   for (const node of ast.nodes) {
     if (node.kind === 'Formula') walkExpr(/** @type {any} */ (node).expr, table);
@@ -294,27 +294,14 @@ export function extractPrepare(call) {
   if (descNode.callee === 'need') {
     return { kind: 'require', descriptor: extractRequirement(descNode) };
   }
-  // action: keep the id and the AST node so a `Ref` to the id can run `evalAction` on it.
-  const fields = readActionIdField(descNode);
-  return { kind: 'action', descriptor: { id: fields.id, actionNode: descNode } };
-}
-
-/**
- * Reads the literal string `id` of an `action({...})` descriptor (required by `prepare`).
- * @param {import('../ast/nodes.js').CallNode} call
- * @returns {{ id: string }}
- */
-function readActionIdField(call) {
-  const obj = call.args[0];
-  if (!obj || obj.kind !== 'ObjectLit')
-    throw syntax('action(...) expects a descriptor object', call);
-  for (const entry of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
-    if (entry.key === 'id') {
-      const v = /** @type {any} */ (entry.value);
-      if (v.kind === 'Lit' && v.type === 'string') return { id: /** @type {string} */ (v.value) };
-    }
+  // action: a `prepare`d action must carry its own literal `id` (the name it is referenced by).
+  // Reuse the shared static reader (which also drops `__proto__` keys) rather than re-scanning.
+  const id = extractActionStatic(descNode).id;
+  if (id === undefined) {
+    throw syntax("prepare(action(...)) needs a string 'id' in the descriptor", descNode);
   }
-  throw syntax("prepare(action(...)) needs a string 'id' in the descriptor", call);
+  // Keep the id and the AST node so a `Ref` to the id can run `evalAction` on it.
+  return { kind: 'action', descriptor: { id, actionNode: descNode } };
 }
 
 /**

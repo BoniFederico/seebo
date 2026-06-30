@@ -497,9 +497,16 @@ export function validate(template, config) {
       );
     }
 
-    // Duplicate id (only statically detectable for literal ids).
+    // Duplicate id (only statically detectable for literal ids). An action id is dropped silently
+    // when it collides with an earlier action (seenActionIds) OR with a value/need binding of the
+    // same id: the symbol table is keyed by id, first-wins, so the colliding action never enters
+    // the plan. Both cases are flagged so the effect does not vanish without a diagnostic.
     if (info.id !== undefined) {
-      if (seenActionIds.has(info.id)) {
+      const claimedByBinding = symbols.get(info.id);
+      const collides =
+        seenActionIds.has(info.id) ||
+        (claimedByBinding !== undefined && claimedByBinding.kind !== 'action');
+      if (collides) {
         diagnostics.push(
           diag(DiagnosticCode.DUPLICATE_ACTION_ID, call, `duplicate action id '${info.id}'`, {
             id: info.id,

@@ -523,8 +523,8 @@ function evalCall(e, ctx) {
     }
     return resolveRequirement(descriptor, ctx);
   }
-  if (e.callee === 'bind') return evalBind(e, ctx);
-  if (e.callee === 'prepare') return evalPrepare(e, ctx);
+  if (e.callee === 'bind') return evalDeclaration(e, extractBinding);
+  if (e.callee === 'prepare') return evalDeclaration(e, extractPrepare);
   if (e.callee === 'action') return evalAction(e, ctx);
   if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
   if (e.callee === 'date') return evalDate(e, ctx);
@@ -570,31 +570,18 @@ function evalCall(e, ctx) {
 }
 
 /**
- * Evaluates a `bind(name, type)` value-binding declaration (SPEC §1.7). A declaration is lazy: the
- * name is registered statically by {@link collectDeclarations}, so here it emits nothing; the value
- * is resolved only where the name is referenced (`${ name }`). Validates the call shape so a
- * malformed `bind` is a runtime error rather than a silent no-op.
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
+ * Evaluates a lazy declaration — `bind(name, type)` (SPEC §1.7) or `prepare(need(...) | action(...))`.
+ * A declaration registers a name statically (via {@link collectDeclarations}) and emits **nothing**
+ * here; the value/need/effect is resolved or activated only where the name is referenced
+ * (`${ name }`). `extract` re-validates the call shape so a malformed declaration is a runtime error
+ * rather than a silent empty string.
+ * @param {import('../ast/nodes.js').CallNode} e
+ * @param {(call: import('../ast/nodes.js').CallNode) => unknown} extract  The matching extractor ({@link extractBinding}/{@link extractPrepare}).
+ * @returns {EvalResult}
  */
-function evalBind(e, _ctx) {
+function evalDeclaration(e, extract) {
   try {
-    extractBinding(e); // shape validation; the binding is already registered in the symbol table
-  } catch (ex) {
-    return errFrom(ex, e);
-  }
-  return ok(makeString(''));
-}
-
-/**
- * Evaluates a `prepare(need(...) | action(...))` declaration (SPEC §1.7). Like {@link evalBind} it
- * is a **lazy declaration**: the need/action is registered statically (by its own `id`) and emits
- * nothing here; it is resolved/activated only where its id is referenced (`${ id }`). Validates the
- * call shape so a malformed `prepare` is a runtime error rather than a silent no-op.
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
- */
-function evalPrepare(e, _ctx) {
-  try {
-    extractPrepare(e); // shape validation; the declaration is already in the symbol table
+    extract(e); // shape validation; the declaration is already registered in the symbol table
   } catch (ex) {
     return errFrom(ex, e);
   }
