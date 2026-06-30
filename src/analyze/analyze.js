@@ -307,7 +307,7 @@ function walkGraph(expr, gov, governing) {
     walkGraph(e.else, inner, governing);
     return;
   }
-  if (e.kind === 'Call' && e.callee === 'require') {
+  if (e.kind === 'Call' && e.callee === 'need') {
     let id;
     try {
       id = extractRequirement(e).id;
@@ -352,7 +352,7 @@ function collectRefIds(expr) {
   const visit = (e) => {
     if (!e || typeof e !== 'object') return;
     if (e.kind === 'Ref') out.push(e.name);
-    else if (e.kind === 'Call' && e.callee === 'require') {
+    else if (e.kind === 'Call' && e.callee === 'need') {
       try {
         out.push(extractRequirement(e).id);
       } catch {

@@ -6,7 +6,7 @@
  *
  *  - {@link DiagnosticCode.UNDECLARED_NAME} — a reference to an undeclared identifier;
  *  - {@link DiagnosticCode.UNKNOWN_FUNCTION} — a call to an unknown producer/library;
- *  - {@link DiagnosticCode.UNKNOWN_CAPABILITY} — a `require` citing an unregistered capability;
+ *  - {@link DiagnosticCode.UNKNOWN_CAPABILITY} — a `need` citing an unregistered capability;
  *  - {@link DiagnosticCode.POLICY_FORBIDDEN} — a capability excluded by `policy.allowedCapabilities`;
  *  - {@link DiagnosticCode.NON_EXHAUSTIVE_MATCH} — a `match` with no `*` default arm (IMPL §3/B.3);
  *  - {@link DiagnosticCode.UNKNOWN_METHOD} — a method that does not exist on the (statically
@@ -192,14 +192,15 @@ export function validate(template, config) {
    */
   function validateCall(call) {
     const callee = call.callee;
-    if (callee === 'require') {
+    if (callee === 'need') {
       validateRequire(call);
       for (const arg of call.args) walk(arg);
       return declaredCallType(call);
     }
-    if (callee === 'var') {
-      for (const arg of call.args) walk(arg);
-      return declaredCallType(call);
+    if (callee === 'bind') {
+      validateBind(call);
+      // The bound type is the descriptor's type; the descriptor (2nd arg) is walked by validateBind.
+      return declaredBindType(call);
     }
     if (callee === 'action') {
       validateAction(call);
@@ -329,7 +330,7 @@ export function validate(template, config) {
   }
 
   /**
-   * Resolves the declared base type of a `require`/`var` call (the descriptor's `type`),
+   * Resolves the declared base type of a `need({...})` call (the descriptor's `type`),
    * normalized to `'unknown'` for custom (non-builtin) types.
    * @param {import('../ast/nodes.js').CallNode} call
    * @returns {import('./infer.js').InferredType}
@@ -343,16 +344,50 @@ export function validate(template, config) {
     }
   }
 
-  /** @param {import('../ast/nodes.js').CallNode} call */
-  function validateRequire(call) {
-    let descriptor;
-    try {
-      descriptor = extractRequirement(call);
-    } catch {
-      // A malformed descriptor is reported as a syntax-level issue by parse/run; skip here.
+  /**
+   * Resolves the inferred type of a `bind('name', descriptor)` — the type of its descriptor
+   * (the 2nd argument), obtained by walking it. A malformed/missing descriptor is `'unknown'`.
+   * @param {import('../ast/nodes.js').CallNode} call
+   * @returns {import('./infer.js').InferredType}
+   */
+  function declaredBindType(call) {
+    const desc = call.args[1];
+    return desc ? walk(desc) : 'unknown';
+  }
+
+  /**
+   * Validates a `bind('name', descriptor)` declaration: the name must be a string literal, and a
+   * descriptor must be present. The descriptor (a type-builder, `need(...)` or `action(...)`) is
+   * walked so its own diagnostics (capability/action checks) are reported.
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validateBind(call) {
+    const nameNode = /** @type {any} */ (call.args[0]);
+    if (!nameNode || nameNode.kind !== 'Lit' || nameNode.type !== 'string') {
+      diagnostics.push(diag(DiagnosticCode.SYNTAX_ERROR, call, 'bind(...) expects a string name'));
+    }
+    if (call.args[1] === undefined) {
+      diagnostics.push(
+        diag(
+          DiagnosticCode.SYNTAX_ERROR,
+          call,
+          'bind(...) needs a descriptor (type, need(...) or action(...))'
+        )
+      );
       return;
     }
-    const cap = descriptor.capability;
+    walk(call.args[1]);
+  }
+
+  /**
+   * Validates a `need({...})` call: the capability must be registered and allowed by policy. The
+   * `capability` is read directly from the descriptor object, so it is checked even when the `id`
+   * is supplied by an enclosing `bind` (and therefore absent from the descriptor itself).
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validateRequire(call) {
+    const cap = capabilityOf(call);
+    if (cap === undefined) return; // malformed descriptor; surfaced as a syntax issue by parse/run
     if (cap && !capabilities.has(cap)) {
       diagnostics.push(
         diag(DiagnosticCode.UNKNOWN_CAPABILITY, call, `capability '${cap}' is not registered`, {
@@ -559,6 +594,24 @@ export function validate(template, config) {
 /** `true` when an expression is a literal node (used to decide whether a non-string id/type is a static error). @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
 function isLiteralKind(expr) {
   return /** @type {any} */ (expr)?.kind === 'Lit';
+}
+
+/**
+ * Reads the literal `capability` string from a `need({...})` descriptor, independent of the `id`
+ * (which a `bind` may supply). Returns `undefined` when the descriptor is missing/non-literal.
+ * @param {import('../ast/nodes.js').CallNode} call
+ * @returns {string | undefined}
+ */
+function capabilityOf(call) {
+  const obj = /** @type {any} */ (call.args[0]);
+  if (!obj || obj.kind !== 'ObjectLit') return undefined;
+  for (const entry of obj.entries) {
+    if (entry.key === 'capability') {
+      const v = /** @type {any} */ (entry.value);
+      return v.kind === 'Lit' && v.type === 'string' ? /** @type {string} */ (v.value) : undefined;
+    }
+  }
+  return undefined;
 }
 
 /**

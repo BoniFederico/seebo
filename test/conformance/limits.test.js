@@ -132,7 +132,7 @@ test('a __proto__ initial value never pollutes Object.prototype', () => {
 test('a requirement declared as __proto__ never pollutes Object.prototype', async () => {
   const engine = realEngine({ capabilities: { user: () => ({ polluted: true }) } });
   await engine.stebo({
-    template: "${ require({ id:'__proto__', type:object(), capability:'user' }) }",
+    template: "${ need({ id:'__proto__', type:object(), capability:'user' }) }",
   });
   assert.equal(/** @type {any} */ ({}).polluted, undefined);
 });

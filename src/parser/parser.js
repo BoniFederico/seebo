@@ -10,7 +10,7 @@
  *
  * Config-dependent desugaring (IMPL §3, applied only when the names are supplied in
  * `options`, e.g. by `engine.parse`):
- *  - capability sugar: `cap({...})` → `require({..., capability:'cap'})` when `cap` is a
+ *  - capability sugar: `cap({...})` → `need({..., capability:'cap'})` when `cap` is a
  *    registered capability (SPEC §1.6);
  *  - library namespaces: `ns.name(...)` → a `Namespace` node when `ns` is a registered
  *    library (SPEC §1.5).
@@ -508,7 +508,7 @@ function coversClosedDomain(arms) {
 
 /**
  * Builds a producer Call, applying capability sugar (SPEC §1.6) when the callee is a
- * registered capability: `cap({...})` → `require({..., capability:'cap'})`.
+ * registered capability: `cap({...})` → `need({..., capability:'cap'})`.
  * @param {Context} ctx
  * @param {import('../ast/nodes.js').RefNode} calleeRef
  * @param {import('../ast/nodes.js').Expr[]} args
@@ -523,7 +523,7 @@ function makeCall(ctx, calleeRef, args) {
     return {
       kind: 'Call',
       position,
-      callee: 'require',
+      callee: 'need',
       args: injectCapability(args, name, position),
     };
   }

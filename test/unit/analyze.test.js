@@ -25,9 +25,9 @@ test('capabilitiesUsed lists distinct capabilities in declaration order', () => 
   const engine = realEngine({ capabilities: { user: () => undefined, crm: () => undefined } });
   const a = engine.analyze(
     [
-      "${ require({ id:'a', type:string(), capability:'user' }) }",
-      "${ require({ id:'b', type:string(), capability:'crm' }) }",
-      "${ require({ id:'c', type:string(), capability:'user' }) }",
+      "${ need({ id:'a', type:string(), capability:'user' }) }",
+      "${ need({ id:'b', type:string(), capability:'crm' }) }",
+      "${ need({ id:'c', type:string(), capability:'user' }) }",
     ].join('')
   );
   assert.deepEqual(a.capabilitiesUsed, ['user', 'crm']);
@@ -53,7 +53,7 @@ test('a layout macro forces buffered streamability', () => {
 test('options are derived from a choice-list constraint', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const a = engine.analyze(
-    "${ require({ id:'country', type:array().constraints({ values:['IT','US'] }), capability:'user' }) }"
+    "${ need({ id:'country', type:array().constraints({ values:['IT','US'] }), capability:'user' }) }"
   );
   assert.deepEqual(a.requirements[0].options, ['IT', 'US']);
 });

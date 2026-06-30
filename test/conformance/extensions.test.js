@@ -173,7 +173,7 @@ test('SPEC §1.5 — a duplicate name fails createEngine with NAME_CONFLICT', ()
  * Trusted / untrusted capability policy — IMPL §13
  * ----------------------------------------------------------------------------------- */
 
-const SECRETS_TEMPLATE = "${ require({ id:'k', type:string(), capability:'secrets' }) }";
+const SECRETS_TEMPLATE = "${ need({ id:'k', type:string(), capability:'secrets' }) }";
 
 test('IMPL §13 — allowFrom:trusted forbids the capability for an untrusted template', async () => {
   const engine = realEngine({

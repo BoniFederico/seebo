@@ -17,12 +17,12 @@ import { realEngine, normalizeOutput } from '../helpers/index.js';
 import { Status } from '../../src/run/run.js';
 
 // IMPL B.2 — a Need in a non-taken branch is NOT emitted (lazy evaluation, IMPL §5).
-//   Input: ${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }
+//   Input: ${ flag ? need({id:'x', type:string(), capability:'user'}) : 'ok' }
 //   With resolved {flag:false}: status completed, output 'ok', pending [].
 //   With resolved {flag:true} and x absent: status waiting, pending [x].
 test('IMPL B.2 — need in non-taken branch is not emitted', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
-  const template = "${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }";
+  const template = "${ flag ? need({id:'x', type:string(), capability:'user'}) : 'ok' }";
 
   const off = engine.run(engine.start(template, { flag: false }));
   assert.equal(off.status, Status.COMPLETED);

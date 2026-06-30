@@ -51,7 +51,7 @@ test('IMPL §5 — a type mismatch yields Err(TYPE_ERROR_RUNTIME)', () => {
 
 test('IMPL §5 — an unsatisfied required requirement yields Susp(Need)', () => {
   const c = ctx();
-  const req = engine.parse("${ require({ id:'x', type:string(), capability:'user' }) }").nodes[0];
+  const req = engine.parse("${ need({ id:'x', type:string(), capability:'user' }) }").nodes[0];
   const res = evaluate(/** @type {any} */ (req).expr, c);
   assert.equal(res.kind, ResultKind.SUSP);
   assert.equal(/** @type {any} */ (res).need.id, 'x');
@@ -59,34 +59,30 @@ test('IMPL §5 — an unsatisfied required requirement yields Susp(Need)', () =>
 });
 
 test('IMPL §5 — a resolved requirement evaluates to its value', () => {
-  const req = engine.parse("${ require({ id:'x', type:string(), capability:'user' }) }").nodes[0];
+  const req = engine.parse("${ need({ id:'x', type:string(), capability:'user' }) }").nodes[0];
   const res = evaluate(/** @type {any} */ (req).expr, ctx({ x: 'hi' }));
   assert.equal(res.kind, ResultKind.OK);
   assert.equal(/** @type {any} */ (res).value.value, 'hi');
 });
 
 test('IMPL §5 — optional requirement resolves to the empty value', () => {
-  const req = engine.parse(
-    "${ require({ id:'x', type:string(), capability:'user', optional:true }) }"
-  ).nodes[0];
+  const req = engine.parse("${ need({ id:'x', type:string(), capability:'user', optional:true }) }")
+    .nodes[0];
   const res = evaluate(/** @type {any} */ (req).expr, ctx());
   assert.equal(res.kind, ResultKind.OK);
   assert.equal(/** @type {any} */ (res).value.value, '');
 });
 
 test('IMPL §5 — default takes precedence over Need', () => {
-  const req = engine.parse(
-    "${ require({ id:'x', type:string().default('N/D'), capability:'user' }) }"
-  ).nodes[0];
+  const req = engine.parse("${ need({ id:'x', type:string().default('N/D'), capability:'user' }) }")
+    .nodes[0];
   const res = evaluate(/** @type {any} */ (req).expr, ctx());
   assert.equal(res.kind, ResultKind.OK);
   assert.equal(/** @type {any} */ (res).value.value, 'N/D');
 });
 
 test('IMPL §5 — lazy ternary gates the Need in the non-taken branch', () => {
-  const ast = engine.parse(
-    "${ flag ? require({id:'x', type:string(), capability:'user'}) : 'ok' }"
-  );
+  const ast = engine.parse("${ flag ? need({id:'x', type:string(), capability:'user'}) : 'ok' }");
   // flag=false → else branch → no Need emitted
   const off = evaluateDocument(ast, { flag: false }, {});
   assert.equal(off.status, 'completed');
@@ -102,7 +98,7 @@ test('IMPL §5 — lazy ternary gates the Need in the non-taken branch', () => {
 
 test('IMPL §5 — independent Needs are collected in one pass (batch)', () => {
   const ast = engine.parse(
-    "${ require({id:'a', type:string(), capability:'user'}) }${ require({id:'b', type:string(), capability:'user'}) }"
+    "${ need({id:'a', type:string(), capability:'user'}) }${ need({id:'b', type:string(), capability:'user'}) }"
   );
   const r = evaluateDocument(ast, {}, {});
   assert.equal(r.status, 'waiting');
@@ -114,7 +110,7 @@ test('IMPL §5 — independent Needs are collected in one pass (batch)', () => {
  * ----------------------------------------------------------------------------------- */
 
 test('createEvaluator: step suspends, resume completes', () => {
-  const ast = engine.parse("Hello ${ require({id:'who', type:string(), capability:'user'}) }!");
+  const ast = engine.parse("Hello ${ need({id:'who', type:string(), capability:'user'}) }!");
   const ev = createEvaluator(ast, { config: engine.config });
 
   const s1 = ev.step();
@@ -132,7 +128,7 @@ test('createEvaluator: step suspends, resume completes', () => {
 });
 
 test('createEvaluator: run() drives via the provided async driver', async () => {
-  const ast = engine.parse("Hi ${ require({id:'name', type:string(), capability:'user'}) }");
+  const ast = engine.parse("Hi ${ need({id:'name', type:string(), capability:'user'}) }");
   const ev = createEvaluator(ast, { config: engine.config }, async (pending) => {
     /** @type {Record<string, unknown>} */
     const out = {};
@@ -145,7 +141,7 @@ test('createEvaluator: run() drives via the provided async driver', async () => 
 });
 
 test('createEvaluator: run() stops when the driver makes no progress', async () => {
-  const ast = engine.parse("Hi ${ require({id:'name', type:string(), capability:'user'}) }");
+  const ast = engine.parse("Hi ${ need({id:'name', type:string(), capability:'user'}) }");
   const ev = createEvaluator(ast, { config: engine.config }, async () => ({}));
   const snap = await ev.run();
   assert.equal(snap.status, 'waiting');

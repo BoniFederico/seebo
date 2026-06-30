@@ -28,12 +28,16 @@ export const BUILTIN_TYPE_NAMES = Object.freeze([
 export const BUILTIN_PRODUCER_NAMES = Object.freeze(['now', 'date']);
 
 /**
- * Special syntactic forms (SPEC §1.6/§1.7/§2.8): `require(...)`, `var(...)` and `action(...)`.
- * They occupy the producer namespace but are not ordinary functions — `action(...)` is an
- * effect *declaration* prepared by the core and executed only via `seebo/actions`.
+ * Special syntactic forms (SPEC §1.6/§1.7/§2.8): `need(...)`, `bind(...)` and `action(...)`.
+ * They occupy the producer namespace but are not ordinary functions:
+ *  - `need({...})` declares missing external data resolved by a capability (the descriptor);
+ *  - `bind(name, descriptor)` declares a named binding — a value, a {@link need} or an
+ *    {@link action} — referenced **plain** (`${ name }`) elsewhere;
+ *  - `action(...)` is an effect *declaration* prepared by the core and executed only via
+ *    `seebo/actions`.
  * @type {ReadonlyArray<string>}
  */
-export const BUILTIN_FORMS = Object.freeze(['require', 'var', 'action']);
+export const BUILTIN_FORMS = Object.freeze(['need', 'bind', 'action']);
 
 /**
  * Aggregator (pre-pass / EXPAND) macro names (SPEC §1.8).

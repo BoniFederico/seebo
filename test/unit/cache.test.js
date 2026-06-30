@@ -47,7 +47,7 @@ test('render output is identical with and without astCache', () => {
 });
 
 test('analyze result is identical with and without astCache', () => {
-  const t = "${ require({ id:'x', type:string(), capability:'user' }) }";
+  const t = "${ need({ id:'x', type:string(), capability:'user' }) }";
   const plain = createEngine({ capabilities: { user: () => undefined } });
   const cached = createEngine({
     capabilities: { user: () => undefined },
