@@ -14,6 +14,7 @@ import { start as _start, run as _run } from './run/index.js';
 import { expand as _expand, finalize as _finalize } from './macros/index.js';
 import { drive as _drive, stebo as _stebo } from './driver/index.js';
 import { createRegistry } from './runtime/registry.js';
+import { builder } from './runtime/values.js';
 import { EngineConfigError, DiagnosticCode } from './util/errors.js';
 import { DEFAULT_LIMITS } from './util/limits.js';
 import { AST_VERSION, STATE_VERSION, ANALYSIS_VERSION, migrations } from './util/versions.js';
@@ -80,7 +81,7 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  * @property {Array<string | FunctionExtensionDef>} [functions]  Application-defined producers/transformers (from {@link defineFunction}); plain builtin names are accepted and ignored.
  * @property {Array<string | MacroExtensionDef>} [macros]  Application-defined macros (from {@link defineMacro}); plain builtin names are accepted and ignored.
  * @property {Array<string | LibraryExtensionDef>} [libraries]  Library namespaces to enable (name or {@link defineLibrary} descriptor).
- * @property {Record<string, import('./eval/evaluator.js').CapabilityFn>} [capabilities]  Capability providers keyed by name.
+ * @property {Record<string, import('./eval/evaluator.js').CapabilityFn | CapabilityExtensionDef>} [capabilities]  Capability providers keyed by name; a {@link defineCapability} descriptor also registers a contract.
  * @property {ActionExtensionDef[]} [actions]  Application-defined action handlers (from {@link defineAction}); executed only via `seebo/actions`.
  * @property {EnginePolicy} [policy]  Runtime policy (allowlists, audit, redact, retry).
  * @property {string} [locale]  BCP-47 locale for formatting. Default: `'en-US'`.
@@ -171,12 +172,29 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  */
 
 /**
- * Custom capability descriptor (SPEC §2.6). Register its `resolve` under the matching key
- * of {@link EngineConfig} `capabilities` (the map is the wiring point used by the driver).
+ * Custom capability descriptor (SPEC §2.6). Place the whole descriptor under the matching key of
+ * {@link EngineConfig} `capabilities` to also register its **contract** (`type`/`constraints`/…),
+ * which a `need('cap')` inherits (SPEC §1.6); a bare resolver function is still accepted (no
+ * contract). The map is the wiring point used by the driver (`resolve`) and the static passes
+ * (the contract).
  * @typedef {Object} CapabilityExtensionDef
  * @property {'capability'} kind
  * @property {string} name
  * @property {(req: import('./eval/evaluator.js').RequirementDescriptor) => unknown | Promise<unknown>} resolve
+ * @property {import('./runtime/values.js').TypeBuilder | import('./runtime/values.js').TypeDescriptor | string} [type]  Default value type (with its `constraints`/`format`) for needs of this capability.
+ * @property {string} [label]  Default human label for the need.
+ * @property {string} [description]  Default description for the need.
+ */
+
+/**
+ * Static contract a capability declares (SPEC §1.6). Inherited by a `need('cap')` and overridable
+ * per-need by the template (template wins). Derived from a {@link CapabilityExtensionDef} by
+ * {@link normalizeConfig}; `type` is a resolved {@link import('./runtime/values.js').TypeDescriptor}
+ * carrying its own `constraints`/`format`.
+ * @typedef {Object} CapabilityContract
+ * @property {import('./runtime/values.js').TypeDescriptor} [type]
+ * @property {string} [label]
+ * @property {string} [description]
  */
 
 /**
@@ -200,7 +218,7 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
 /**
  * Fully resolved config produced by {@link normalizeConfig}. All optional fields from
  * {@link EngineConfig} that have defaults are guaranteed to be present.
- * @typedef {EngineConfig & { locale: string, clock: () => Date, capabilities: Record<string, import('./eval/evaluator.js').CapabilityFn>, delimiters: Record<string, string>, limits: Record<string, number>, optimizations: Record<string, boolean>, registry: import('./runtime/registry.js').Registry, policy: EnginePolicy & { trustLevel: 'trusted'|'untrusted', capabilityRules: Record<string, CapabilityRule>, audit: (event: Record<string, unknown>) => void, retry: { attempts: number, backoffMs: number } } }} NormalizedConfig
+ * @typedef {EngineConfig & { locale: string, clock: () => Date, capabilities: Record<string, import('./eval/evaluator.js').CapabilityFn>, capabilityContracts: Record<string, CapabilityContract>, delimiters: Record<string, string>, limits: Record<string, number>, optimizations: Record<string, boolean>, registry: import('./runtime/registry.js').Registry, policy: EnginePolicy & { trustLevel: 'trusted'|'untrusted', capabilityRules: Record<string, CapabilityRule>, audit: (event: Record<string, unknown>) => void, retry: { attempts: number, backoffMs: number } } }} NormalizedConfig
  */
 
 /**
@@ -212,11 +230,13 @@ export const DEFAULT_OPTIMIZATIONS = Object.freeze({
  */
 export function normalizeConfig(config = {}) {
   const policy = config.policy ?? {};
+  const { providers, contracts } = splitCapabilities(config.capabilities);
   return {
     ...config,
     locale: config.locale ?? 'en-US',
     clock: config.clock ?? (() => new Date()),
-    capabilities: config.capabilities ?? {},
+    capabilities: providers,
+    capabilityContracts: contracts,
     actions: config.actions ?? [],
     delimiters: { ...DEFAULT_DELIMITERS, ...(config.delimiters ?? {}) },
     limits: { ...DEFAULT_LIMITS, ...(config.limits ?? {}) },
@@ -233,6 +253,79 @@ export function normalizeConfig(config = {}) {
       action: policy.action ?? {},
     },
   };
+}
+
+/**
+ * Splits the `capabilities` map into the provider functions consumed by the driver and the
+ * (optional) per-capability **contracts** consumed by the static passes (SPEC §1.6). Each entry
+ * may be a bare resolver function (no contract) or a {@link CapabilityExtensionDef} descriptor
+ * (from {@link defineCapability}, carrying `resolve` plus `type`/`constraints`/`format`/`label`/
+ * `description`). Pure; the descriptor's contract is what `need('cap')` inherits.
+ *
+ * @param {Record<string, import('./eval/evaluator.js').CapabilityFn | CapabilityExtensionDef>} [capabilities]
+ * @returns {{ providers: Record<string, import('./eval/evaluator.js').CapabilityFn>, contracts: Record<string, CapabilityContract> }}
+ */
+function splitCapabilities(capabilities) {
+  /** @type {Record<string, import('./eval/evaluator.js').CapabilityFn>} */
+  const providers = {};
+  /** @type {Record<string, CapabilityContract>} */
+  const contracts = {};
+  for (const [name, entry] of Object.entries(capabilities ?? {})) {
+    if (typeof entry === 'function') {
+      providers[name] = entry;
+      continue;
+    }
+    if (entry && typeof entry === 'object' && typeof entry.resolve === 'function') {
+      providers[name] = entry.resolve;
+      const contract = capabilityContractOf(entry);
+      if (contract) contracts[name] = contract;
+      continue;
+    }
+    throw new EngineConfigError(
+      `capability '${name}' must be a resolver function or a defineCapability() descriptor`
+    );
+  }
+  return { providers, contracts };
+}
+
+/**
+ * Extracts the static contract (`type`, `label`, `description`) from a capability descriptor, or
+ * `undefined` when it declares none. The `type` builder/descriptor (carrying its own
+ * `constraints`/`format`) is normalized to a {@link import('./runtime/values.js').TypeDescriptor}.
+ * @param {CapabilityExtensionDef} def
+ * @returns {CapabilityContract | undefined}
+ */
+function capabilityContractOf(def) {
+  /** @type {CapabilityContract} */
+  const contract = {};
+  let has = false;
+  if (def.type !== undefined) {
+    contract.type = toTypeDescriptor(def.type);
+    has = true;
+  }
+  if (typeof def.label === 'string') {
+    contract.label = def.label;
+    has = true;
+  }
+  if (typeof def.description === 'string') {
+    contract.description = def.description;
+    has = true;
+  }
+  return has ? contract : undefined;
+}
+
+/**
+ * Normalizes a capability's declared `type` to a {@link import('./runtime/values.js').TypeDescriptor}.
+ * Accepts a {@link import('./runtime/values.js').TypeBuilder} (`object()`), an already-built
+ * descriptor, or a base type name string.
+ * @param {unknown} type
+ * @returns {import('./runtime/values.js').TypeDescriptor}
+ */
+function toTypeDescriptor(type) {
+  if (typeof type === 'string') return builder(type).toDescriptor();
+  const t = /** @type {any} */ (type);
+  if (t && typeof t.toDescriptor === 'function') return t.toDescriptor();
+  return /** @type {import('./runtime/values.js').TypeDescriptor} */ (t);
 }
 
 /**

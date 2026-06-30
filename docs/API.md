@@ -76,14 +76,14 @@ Each returns a **frozen descriptor** to place in the matching `createEngine` con
 Implementations are **trusted host code**: they receive plain JS values and their results are
 re-wrapped via `fromJs` (no internal `Value`s leak; no `eval` of template text).
 
-| Factory                       | Descriptor `kind` | Place in config                              | Notes                                                                                |
-| ----------------------------- | ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `defineType(name, def?)`      | `'type'`          | `types`                                      | `category?`, `defaultFormat?`, `validate?(v,c)`, `stringify?(v,f)`.                  |
-| `defineFunction(name, def)`   | `'function'`      | `functions`                                  | Producer (no `receiver`) or transformer (`receiver` type); `arity?`, `eval`.         |
-| `defineMacro(name, def?)`     | `'macro'`         | `macros`                                     | `family?`/`phase?`; a `'finalize'` macro may carry `apply(slot, doc)`.               |
-| `defineCapability(name, def)` | `'capability'`    | wire `def.resolve` into `capabilities[name]` | `resolve(req)` (sync or `Promise`).                                                  |
-| `defineLibrary(name, def?)`   | `'library'`       | `libraries`                                  | `functions: { fn: { arity?, eval } }`, invoked as `name.fn()`.                       |
-| `defineAction(type, handler)` | `'action'`        | `actions` _or_ `engine.defineAction(...)`    | Effect handler (`execute`, `dryRun?`, `compensate?`); runs only via `seebo/actions`. |
+| Factory                       | Descriptor `kind` | Place in config                              | Notes                                                                                                          |
+| ----------------------------- | ----------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `defineType(name, def?)`      | `'type'`          | `types`                                      | `category?`, `defaultFormat?`, `validate?(v,c)`, `stringify?(v,f)`.                                            |
+| `defineFunction(name, def)`   | `'function'`      | `functions`                                  | Producer (no `receiver`) or transformer (`receiver` type); `arity?`, `eval`.                                   |
+| `defineMacro(name, def?)`     | `'macro'`         | `macros`                                     | `family?`/`phase?`; a `'finalize'` macro may carry `apply(slot, doc)`.                                         |
+| `defineCapability(name, def)` | `'capability'`    | place the descriptor at `capabilities[name]` | `resolve(req)` (sync or `Promise`); optional contract `type`/`label`/`description` inherited by `need('cap')`. |
+| `defineLibrary(name, def?)`   | `'library'`       | `libraries`                                  | `functions: { fn: { arity?, eval } }`, invoked as `name.fn()`.                                                 |
+| `defineAction(type, handler)` | `'action'`        | `actions` _or_ `engine.defineAction(...)`    | Effect handler (`execute`, `dryRun?`, `compensate?`); runs only via `seebo/actions`.                           |
 
 See [`USAGE.md`](USAGE.md) for worked examples of each.
 
@@ -122,21 +122,21 @@ compensation.
 
 ### `EngineConfig` (all fields optional)
 
-| Field           | Type                                          | Default                 | Notes                                                                |
-| --------------- | --------------------------------------------- | ----------------------- | -------------------------------------------------------------------- |
-| `types`         | `Array<string \| TypeExtensionDef>`           | `[]`                    | Custom types (+ builtin names, ignored).                             |
-| `functions`     | `Array<string \| FunctionExtensionDef>`       | `[]`                    | Producers/transformers.                                              |
-| `macros`        | `Array<string \| MacroExtensionDef>`          | `[]`                    | Aggregator/layout macros.                                            |
-| `libraries`     | `Array<string \| LibraryExtensionDef>`        | `[]`                    | A string only **enables** a namespace.                               |
-| `capabilities`  | `Record<string, (req) => unknown \| Promise>` | `{}`                    | The whole capability set; no builtins (SPEC §1.6).                   |
-| `actions`       | `ActionExtensionDef[]`                        | `[]`                    | Action handlers (`defineAction`); executed only via `seebo/actions`. |
-| `policy`        | `EnginePolicy`                                | see below               | Allow-lists, trust, audit, redact, retry, action controls.           |
-| `locale`        | `string`                                      | `'en-US'`               | Formatting locale (BCP-47).                                          |
-| `clock`         | `() => Date`                                  | `() => new Date()`      | Injected clock for `now()` (determinism).                            |
-| `seed`          | `number`                                      | —                       | Reserved (unused in v1).                                             |
-| `limits`        | `Record<string, number>`                      | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                     |
-| `delimiters`    | `Record<string, string>`                      | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`.      |
-| `optimizations` | `Record<string, boolean>`                     | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                             |
+| Field           | Type                                    | Default                 | Notes                                                                                                                                  |
+| --------------- | --------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `types`         | `Array<string \| TypeExtensionDef>`     | `[]`                    | Custom types (+ builtin names, ignored).                                                                                               |
+| `functions`     | `Array<string \| FunctionExtensionDef>` | `[]`                    | Producers/transformers.                                                                                                                |
+| `macros`        | `Array<string \| MacroExtensionDef>`    | `[]`                    | Aggregator/layout macros.                                                                                                              |
+| `libraries`     | `Array<string \| LibraryExtensionDef>`  | `[]`                    | A string only **enables** a namespace.                                                                                                 |
+| `capabilities`  | `Record<string, fn \| CapabilityDef>`   | `{}`                    | The whole capability set; an entry may be a resolver fn or a `defineCapability` descriptor (with a contract). No builtins (SPEC §1.6). |
+| `actions`       | `ActionExtensionDef[]`                  | `[]`                    | Action handlers (`defineAction`); executed only via `seebo/actions`.                                                                   |
+| `policy`        | `EnginePolicy`                          | see below               | Allow-lists, trust, audit, redact, retry, action controls.                                                                             |
+| `locale`        | `string`                                | `'en-US'`               | Formatting locale (BCP-47).                                                                                                            |
+| `clock`         | `() => Date`                            | `() => new Date()`      | Injected clock for `now()` (determinism).                                                                                              |
+| `seed`          | `number`                                | —                       | Reserved (unused in v1).                                                                                                               |
+| `limits`        | `Record<string, number>`                | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                                                                                       |
+| `delimiters`    | `Record<string, string>`                | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`.                                                                        |
+| `optimizations` | `Record<string, boolean>`               | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                                                                                               |
 
 ### `EnginePolicy`
 
@@ -181,8 +181,13 @@ the capability out of the audit hook.
 
 ### `RequirementDescriptor` (SPEC §1.6)
 
-`{ id, type, capability, label?, description?, optional?, priority?, group?, resolverHints? }`,
-plus the analyze-derived `phase?` and `options?` (extracted from `type.constraints.values`).
+`{ id, type, capability, label?, description?, optional?, priority?, group?, args? }`, plus the
+analyze-derived `phase?` and `options?` (extracted from `type.constraints.values`). `args` is data
+forwarded opaquely to the capability provider; its value may reference another binding (SPEC §2.4),
+in which case the dependency is resolved first (the analyze graph orders them into phases).
+
+Declared with `need(...)`; named for reuse with `bind(name, need(...))`. A capability may declare a
+contract (`type`/`constraints`/`label`) that `need('cap')` inherits (template overrides win).
 
 ### `Diagnostic` (IMPL Appendix A)
 

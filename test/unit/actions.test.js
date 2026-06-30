@@ -47,7 +47,7 @@ test('an action declaring confirm becomes pendingConfirmation', () => {
 
 test('an action with an unresolved requirement is blocked and still surfaces the Need', () => {
   const engine = createEngine();
-  const tpl = `\${ action({ id: 'a1', type: 't.do', input: { s: require({ id: 'summary', type: string(), capability: 'input' }) } }) }`;
+  const tpl = `\${ action({ id: 'a1', type: 't.do', input: { s: need({ id: 'summary', type: string(), capability: 'input' }) } }) }`;
   let state = engine.run(engine.start(tpl));
   assert.equal(state.status, 'waiting');
   assert.deepEqual(

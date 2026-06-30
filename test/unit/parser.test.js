@@ -97,11 +97,11 @@ test('method call x.name(args)', () => {
 
 test('chained member/method: crm({...}).id', () => {
   const e = expr("crm({ id: 'ordine' }).id", { capabilities: ['crm'] });
-  // capability sugar normalizes crm(...) → require(..., capability:'crm')
+  // capability sugar normalizes crm(...) → need(..., capability:'crm')
   assert.equal(e.kind, 'Member');
   assert.equal(e.key, 'id');
   assert.equal(e.receiver.kind, 'Call');
-  assert.equal(e.receiver.callee, 'require');
+  assert.equal(e.receiver.callee, 'need');
 });
 
 test('library namespace fake.email() when the library is registered', () => {
@@ -248,7 +248,7 @@ test('match without default falls back to empty string (validate flags non-exhau
 test('capability sugar injects capability into the descriptor', () => {
   const e = expr("crm({ id: 'cliente' })", { capabilities: ['crm'] });
   assert.equal(e.kind, 'Call');
-  assert.equal(e.callee, 'require');
+  assert.equal(e.callee, 'need');
   const obj = e.args[0];
   assert.equal(obj.kind, 'ObjectLit');
   assert.deepEqual(obj.entries.at(-1), {
@@ -258,8 +258,8 @@ test('capability sugar injects capability into the descriptor', () => {
 });
 
 test('explicit require is left untouched', () => {
-  const e = expr("require({ id: 'x', capability: 'user' })", { capabilities: ['user'] });
-  assert.equal(e.callee, 'require');
+  const e = expr("need({ id: 'x', capability: 'user' })", { capabilities: ['user'] });
+  assert.equal(e.callee, 'need');
   assert.equal(e.args[0].entries.length, 2); // no duplicate capability injected
 });
 

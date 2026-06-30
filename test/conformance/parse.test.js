@@ -50,13 +50,13 @@ test('SPEC §1.2 — text/comment/formula document', () => {
 });
 
 // SPEC §1.6 — capability sugar: a registered capability used as a producer is normalized
-// to require(..., capability:'<name>') at parse time.
-test('SPEC §1.6 — capability producer is normalized to require', () => {
+// to need(..., capability:'<name>') at parse time.
+test('SPEC §1.6 — capability producer is normalized to need', () => {
   const engine = realEngine({ capabilities: { secrets: () => undefined } });
   const ast = stripPositions(engine.parse("${ secrets({ id: 'mittente', type: string() }) }"));
   const expr = /** @type {any} */ (ast.nodes[0]).expr;
   assert.equal(expr.kind, 'Call');
-  assert.equal(expr.callee, 'require');
+  assert.equal(expr.callee, 'need');
   assert.deepEqual(
     expr.args[0].entries.map((/** @type {any} */ e) => e.key),
     ['id', 'type', 'capability']

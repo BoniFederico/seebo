@@ -6,7 +6,12 @@
 
 import { ANALYSIS_VERSION } from '../util/versions.js';
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractActionStatic,
+  applyCapabilityContract,
+} from '../eval/symbols.js';
 import { evaluate } from '../eval/evaluator.js';
 
 export { ANALYSIS_VERSION };
@@ -136,7 +141,7 @@ function analyzeUncached(template, config) {
   const ast = parse(template, cfg);
   const symbols = collectDeclarations(ast);
 
-  /** Requirement ids declared in the document (excludes pure `var`s). @type {Set<string>} */
+  /** Requirement ids declared in the document (excludes pure value bindings). @type {Set<string>} */
   const reqIds = new Set();
   for (const [id, decl] of symbols) if (decl.kind === 'require') reqIds.add(id);
 
@@ -149,6 +154,14 @@ function analyzeUncached(template, config) {
     if (node.kind === 'Formula') walkGraph(/** @type {any} */ (node).expr, [], governing);
     else if (node.kind === 'Macro')
       for (const a of /** @type {any} */ (node).args) walkGraph(a, [], governing);
+  }
+
+  // Data-dependency edges (SPEC §2.4): a requirement whose capability `args` references another
+  // binding `dep` depends on it — `dep → need` — so the driver resolves `dep` first. These are
+  // ordinary graph edges, so phases and cycle detection apply unchanged.
+  for (const [id, decl] of symbols) {
+    const deps = /** @type {string[] | undefined} */ (decl.descriptor?.argDeps);
+    if (deps && deps.length > 0) governing.set(id, union(governing.get(id) ?? [], deps));
   }
 
   /** @type {Array<[string, string]>} */
@@ -194,7 +207,12 @@ function analyzeUncached(template, config) {
   const capabilitiesUsed = [];
   for (const [id, decl] of symbols) {
     if (decl.kind !== 'require') continue;
-    const d = decl.descriptor;
+    // Merge the capability contract so the reported requirement carries the inherited type/label
+    // (SPEC §1.6); the template still wins on any field it declares.
+    const d = applyCapabilityContract(
+      decl.descriptor,
+      /** @type {any} */ (cfg).capabilityContracts
+    );
     const options = optionsOf(d);
     /** @type {import('../eval/evaluator.js').RequirementDescriptor} */
     const enriched = { ...d, phase: phaseOf(id, new Set()) };
@@ -292,7 +310,7 @@ function collectActionSummaries(ast) {
 }
 
 /**
- * Records the governing requirement ids for every `require` declared under conditional
+ * Records the governing requirement ids for every `need` declared under conditional
  * branches (the requirement-graph back-edges, IMPL §9).
  * @param {import('../ast/nodes.js').Expr} expr @param {string[]} gov @param {Map<string, string[]>} governing
  */
@@ -307,7 +325,7 @@ function walkGraph(expr, gov, governing) {
     walkGraph(e.else, inner, governing);
     return;
   }
-  if (e.kind === 'Call' && e.callee === 'require') {
+  if (e.kind === 'Call' && e.callee === 'need') {
     let id;
     try {
       id = extractRequirement(e).id;
@@ -344,7 +362,7 @@ function optionsOf(d) {
   return Array.isArray(values) ? values : undefined;
 }
 
-/** Collects identifier ids referenced by an expression: `Ref` names and inner `require` ids. @param {import('../ast/nodes.js').Expr} expr @returns {string[]} */
+/** Collects identifier ids referenced by an expression: `Ref` names and inner `need` ids. @param {import('../ast/nodes.js').Expr} expr @returns {string[]} */
 function collectRefIds(expr) {
   /** @type {string[]} */
   const out = [];
@@ -352,7 +370,7 @@ function collectRefIds(expr) {
   const visit = (e) => {
     if (!e || typeof e !== 'object') return;
     if (e.kind === 'Ref') out.push(e.name);
-    else if (e.kind === 'Call' && e.callee === 'require') {
+    else if (e.kind === 'Call' && e.callee === 'need') {
       try {
         out.push(extractRequirement(e).id);
       } catch {

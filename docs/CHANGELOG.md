@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Binding redesign (SPEC §1.6/§1.7/§2.4).** Unified the declarative surface under
+  `bind(name, descriptor)` and `need({...})`. A name is declared once and read **plain** by name
+  afterwards (`${ name }`); a reference to an undeclared name is `UNDECLARED_NAME`.
+- **Capability contracts (§1.6).** `defineCapability({ type, label, description, resolve })` declares
+  a contract that `need('cap')` inherits, so the template need not repeat the type; the template
+  still wins on any field it overrides. A capability map entry may be a resolver function (as before)
+  or a `defineCapability` descriptor.
+- **Dynamic capability `args` (§2.4).** A capability `args` value may reference another binding; the
+  dependency becomes a static edge in the requirement graph (ordered into phases by `analyze`) while
+  the value stays runtime. An `args` dependency cycle is reported as `CYCLE_DETECTED`.
+
+### Removed
+
+- **BREAKING: `var`, `require`, and `resolverHints` are removed entirely** (no deprecation period).
+  Migration: `var('x', T())` → `bind('x', T())`; `require({...})` → `need({...})` (capability sugar
+  `cap({...})` is unchanged); `resolverHints` → `args`. Reading a bound value no longer uses
+  `var('x')` — reference it plain as `${ x }`.
+
 ## [0.2.0] — 2026-06-29
 
 ### Added

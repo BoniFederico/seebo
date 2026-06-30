@@ -113,7 +113,7 @@ export const ExprKind = Object.freeze({
  */
 
 /**
- * Reference to a declared `var`/`require` by name (SPEC §1.7).
+ * Reference to a declared binding (`bind`/`need`) by name (SPEC §1.7).
  * @typedef {Object} RefNode
  * @property {'Ref'} kind
  * @property {Position} position
@@ -121,12 +121,12 @@ export const ExprKind = Object.freeze({
  */
 
 /**
- * Producer call `name(...)` (SPEC §1.5). Capability calls are normalized into `require`
- * at parse time (IMPL §3), so `callee` here is a producer/require name.
+ * Producer call `name(...)` (SPEC §1.5). Capability calls are normalized into `need`
+ * at parse time (IMPL §3), so `callee` here is a producer/`need` name.
  * @typedef {Object} CallNode
  * @property {'Call'} kind
  * @property {Position} position
- * @property {string} callee  Name of the producer or `require`.
+ * @property {string} callee  Name of the producer or `need`.
  * @property {Expr[]} args  Positional arguments.
  */
 

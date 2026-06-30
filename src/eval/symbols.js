@@ -1,12 +1,17 @@
 /**
  * @file Static declarations and descriptor extraction (IMPL §8, SPEC §1.6/§1.7).
  *
- * A purely syntactic pass over the AST collects every `require`/`var` declaration into a
- * symbol table (`id → { kind, descriptor }`), realizing the **static scope** of SPEC §1.7
- * (a name is visible everywhere, regardless of the branch it appears in). Also extracts a
- * {@link import('./evaluator.js').RequirementDescriptor} from a `require(...)` call and
- * evaluates a type-builder expression (`string()`, `array().constraints({...})`, ...) into
- * a {@link import('../runtime/values.js').TypeDescriptor}.
+ * A purely syntactic pass over the AST collects every binding into a symbol table
+ * (`id → { kind, descriptor }`), realizing the **static scope** of SPEC §1.7 (a name is visible
+ * everywhere, regardless of the branch it appears in). Bindings come from two forms:
+ *  - `need({...})` — a missing-data requirement resolved by a capability (kind `'require'`);
+ *  - `bind(name, descriptor)` — a named binding whose nature is the kind of its descriptor:
+ *    a type-builder ⇒ a pure value (`'var'`), `need(...)` ⇒ a requirement (`'require'`), or
+ *    `action(...)` ⇒ an effect (`'action'`). The `name` becomes the binding's `id`.
+ *
+ * Also extracts a {@link import('./evaluator.js').RequirementDescriptor} from a `need(...)` call
+ * and evaluates a type-builder expression (`string()`, `array().constraints({...})`, ...) into a
+ * {@link import('../runtime/values.js').TypeDescriptor}.
  */
 
 import { builder } from '../runtime/values.js';
@@ -25,8 +30,7 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
 const DECL_CACHE = new WeakMap();
 
 /**
- * Collects all `require`/`var` declarations from a document (all branches, statically).
- * Memoized by AST identity.
+ * Collects all bindings from a document (all branches, statically). Memoized by AST identity.
  * @param {import('../ast/nodes.js').Document} ast
  * @returns {Map<string, { kind: 'require'|'var', descriptor: import('./evaluator.js').RequirementDescriptor }>}
  */
@@ -50,12 +54,27 @@ function walkExpr(expr, table) {
   if (!expr || typeof expr !== 'object') return;
   if (expr.kind === 'Call') {
     const call = /** @type {import('../ast/nodes.js').CallNode} */ (expr);
-    if (call.callee === 'require') {
-      const d = extractRequirement(call);
-      if (!table.has(d.id)) table.set(d.id, { kind: 'require', descriptor: d });
-    } else if (call.callee === 'var') {
-      const d = extractVar(call);
-      if (!table.has(d.id)) table.set(d.id, { kind: 'var', descriptor: d });
+    if (call.callee === 'need') {
+      // A standalone `need({ id, ... })` registers a requirement. A `need(...)` nested inside a
+      // `bind(...)` has no own `id` (it comes from the bind) and is already registered by the
+      // `bind` branch below — `extractRequirement` then throws on the missing id, so we skip it.
+      try {
+        const d = extractRequirement(call);
+        if (!table.has(d.id)) table.set(d.id, { kind: 'require', descriptor: d });
+      } catch {
+        /* bind-wrapped or malformed need: handled by the bind branch / surfaced at eval */
+      }
+    } else if (call.callee === 'bind') {
+      // A malformed `bind` is reported by `validate`/`run`, not here — the static collection must
+      // never throw (it feeds `validate`, which is contractually non-throwing).
+      try {
+        const decl = extractBinding(call);
+        if (decl && !table.has(decl.descriptor.id)) {
+          table.set(decl.descriptor.id, { kind: decl.kind, descriptor: decl.descriptor });
+        }
+      } catch {
+        /* malformed bind: surfaced by validateBind / evalBind */
+      }
     }
   }
   // Recurse into all child expressions.
@@ -90,21 +109,66 @@ function children(expr) {
 }
 
 /**
- * Extracts a requirement descriptor from a `require({...})` call (SPEC §1.6).
+ * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). Two forms:
+ *  - `need('cap')` — a string shorthand: the capability whose contract supplies the rest;
+ *  - `need({ capability, type?, ... })` — the full descriptor object.
+ *
+ * When the call is the descriptor of a `bind(name, need(...))`, the binding `name` supplies the
+ * `id` (so it need not be repeated); otherwise the descriptor must carry a string `id`.
+ *
+ * The `type` is left **undefined** when the descriptor omits it, so a capability contract can fill
+ * it later (see {@link applyCapabilityContract}); the final fallback to `string()` is applied
+ * there. The merge is intentionally NOT done here — this pass is config-free and memoized.
+ *
  * @param {import('../ast/nodes.js').CallNode} call
+ * @param {string} [idFromBind]  The enclosing `bind` name, injected as the requirement `id`.
  * @returns {import('./evaluator.js').RequirementDescriptor}
  */
-export function extractRequirement(call) {
-  const obj = call.args[0];
-  if (!obj || obj.kind !== 'ObjectLit')
-    throw syntax('require(...) expects a descriptor object', call);
-  const d = readDescriptorObject(/** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj));
-  if (typeof d.id !== 'string') throw syntax("require descriptor needs a string 'id'", call);
-  if (typeof d.capability !== 'string') {
-    throw syntax(`require '${d.id}' needs a 'capability'`, call);
+export function extractRequirement(call, idFromBind) {
+  const arg = call.args[0];
+  /** @type {Record<string, unknown>} */
+  let d;
+  if (arg && arg.kind === 'Lit' && /** @type {any} */ (arg).type === 'string') {
+    d = { capability: /** @type {any} */ (arg).value };
+  } else if (arg && arg.kind === 'ObjectLit') {
+    d = readDescriptorObject(/** @type {import('../ast/nodes.js').ObjectLitNode} */ (arg));
+  } else {
+    throw syntax('need(...) expects a capability name string or a descriptor object', call);
   }
-  if (!d.type) d.type = builder('string').toDescriptor();
+  if (idFromBind !== undefined && d.id === undefined) d.id = idFromBind;
+  if (typeof d.id !== 'string') throw syntax("need descriptor needs a string 'id'", call);
+  if (typeof d.capability !== 'string') {
+    throw syntax(`need '${d.id}' needs a 'capability'`, call);
+  }
   return /** @type {any} */ (d);
+}
+
+/**
+ * Fills a requirement descriptor's contract (`type`, `label`, `description`) from its capability's
+ * declared {@link import('../index.js').CapabilityContract}, with the **template winning** on every
+ * field it already provides (SPEC §1.6). The `type` (a full {@link
+ * import('../runtime/values.js').TypeDescriptor} carrying its own `constraints`/`format`) is taken
+ * from the template when present, else from the capability, else defaults to `string()`. Returns a
+ * new descriptor; the input is not mutated. Called by consumers that have the config (evaluator,
+ * `analyze`, `validate`) — the static collection stays contract-free and memoizable.
+ *
+ * @param {import('./evaluator.js').RequirementDescriptor} d
+ * @param {Record<string, import('../index.js').CapabilityContract>} [contracts]
+ * @returns {import('./evaluator.js').RequirementDescriptor}
+ */
+export function applyCapabilityContract(d, contracts) {
+  const contract = contracts?.[d.capability];
+  /** @type {any} */
+  const out = { ...d };
+  if (contract) {
+    if (out.type === undefined && contract.type !== undefined) out.type = contract.type;
+    if (out.label === undefined && contract.label !== undefined) out.label = contract.label;
+    if (out.description === undefined && contract.description !== undefined) {
+      out.description = contract.description;
+    }
+  }
+  if (!out.type) out.type = builder('string').toDescriptor();
+  return out;
 }
 
 /**
@@ -180,23 +244,44 @@ function isConstant(expr) {
 }
 
 /**
- * Extracts a var declaration from a `var('name', type?)` call (SPEC §1.7).
+ * Extracts a binding from a `bind('name', descriptor)` call (SPEC §1.7). The nature of the
+ * binding is the kind of its descriptor argument:
+ *  - a type-builder (`int()`, `string().constraints({...})`) ⇒ a pure value (kind `'var'`);
+ *  - `need({...})` ⇒ a requirement (kind `'require'`), with `id` taken from `name`;
+ *  - `action({...})` ⇒ an effect (kind `'action'`); the descriptor keeps the `action` Call node
+ *    so the evaluator can record it into the action plan when the bound name is referenced.
+ *
  * @param {import('../ast/nodes.js').CallNode} call
+ * @returns {{ kind: 'var'|'require'|'action', descriptor: any } | undefined}
  */
-function extractVar(call) {
+export function extractBinding(call) {
   const nameNode = call.args[0];
   if (!nameNode || nameNode.kind !== 'Lit' || /** @type {any} */ (nameNode).type !== 'string') {
-    throw syntax('var(...) expects a string name', call);
+    throw syntax('bind(...) expects a string name', call);
   }
   const id = /** @type {string} */ (/** @type {any} */ (nameNode).value);
-  const typeNode = call.args[1];
-  const type = typeNode ? evalTypeExpr(typeNode) : builder('string').toDescriptor();
-  return { id, type };
+  const descNode = /** @type {any} */ (call.args[1]);
+  if (!descNode)
+    throw syntax(`bind '${id}' needs a descriptor (a type, need(...) or action(...))`, call);
+
+  if (descNode.kind === 'Call' && descNode.callee === 'need') {
+    return { kind: 'require', descriptor: extractRequirement(descNode, id) };
+  }
+  if (descNode.kind === 'Call' && descNode.callee === 'action') {
+    // The action descriptor is evaluated lazily by the evaluator; statically we keep the id and
+    // the AST node so a `Ref` to `id` can run `evalAction` on it.
+    return { kind: 'action', descriptor: { id, actionNode: descNode } };
+  }
+  // Otherwise the descriptor is a type-builder ⇒ a pure value binding (internal kind `'var'`).
+  return { kind: 'var', descriptor: { id, type: evalTypeExpr(descNode) } };
 }
 
 /**
- * Reads a descriptor `ObjectLit` into a plain object, evaluating the `type` field as a
- * type-builder and other fields as constant literals/JSON.
+ * Reads a descriptor `ObjectLit` into a plain object (SPEC §1.6). The `type` field is evaluated as
+ * a type-builder; the `args` field is kept as its **raw AST** (`argsNode`) plus the list of binding
+ * names it references (`argDeps`), so a capability arg may depend on the resolved value of another
+ * binding (a static dependency edge, runtime value — SPEC §1.6/§2.4); all other fields must be
+ * constant literals/JSON.
  * @param {import('../ast/nodes.js').ObjectLitNode} obj
  * @returns {Record<string, unknown>}
  */
@@ -204,10 +289,38 @@ function readDescriptorObject(obj) {
   /** @type {Record<string, unknown>} */
   const out = {};
   for (const entry of obj.entries) {
-    if (entry.key === 'type') out.type = evalTypeExpr(entry.value);
-    else out[entry.key] = constToJson(entry.value);
+    if (entry.key === '__proto__') continue;
+    if (entry.key === 'type') {
+      out.type = evalTypeExpr(entry.value);
+    } else if (entry.key === 'args') {
+      out.argsNode = entry.value;
+      out.argDeps = collectArgDeps(entry.value);
+    } else {
+      out[entry.key] = constToJson(entry.value);
+    }
   }
   return out;
+}
+
+/**
+ * Collects the binding names a capability `args` expression depends on (SPEC §2.4): the name of
+ * every `Ref` appearing anywhere in the expression (the root of a `Member` chain like `region.code`
+ * is a `Ref`, so it is captured too). Used to build static dependency edges so `analyze` can order
+ * the needs into phases; the value itself stays runtime.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {string[]}
+ */
+export function collectArgDeps(expr) {
+  /** @type {string[]} */
+  const deps = [];
+  /** @param {any} e */
+  const visit = (e) => {
+    if (!e || typeof e !== 'object') return;
+    if (e.kind === 'Ref' && !deps.includes(e.name)) deps.push(e.name);
+    for (const child of children(e)) visit(child);
+  };
+  visit(expr);
+  return deps;
 }
 
 /**

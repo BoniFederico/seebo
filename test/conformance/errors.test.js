@@ -20,11 +20,11 @@ test('SPEC §1.10 — UNDECLARED_NAME for unknown reference', () => {
 });
 
 // IMPL B.4 — a requirement citing an unregistered capability is a static error.
-//   Input: ${ require({ id:'x', type:string(), capability:'ghost' }) }
+//   Input: ${ need({ id:'x', type:string(), capability:'ghost' }) }
 //   Expected: validate → [UNKNOWN_CAPABILITY] with data.capability = 'ghost' (before any run).
 test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', () => {
   const engine = realEngine(); // no capabilities registered
-  const diags = engine.validate("${ require({ id:'x', type:string(), capability:'ghost' }) }");
+  const diags = engine.validate("${ need({ id:'x', type:string(), capability:'ghost' }) }");
   assertHasCode(diags, DiagnosticCode.UNKNOWN_CAPABILITY);
   const d = diags.find((x) => x.code === DiagnosticCode.UNKNOWN_CAPABILITY);
   assert.deepEqual(d?.data, { capability: 'ghost' });
@@ -36,12 +36,12 @@ test('IMPL B.4 — UNKNOWN_CAPABILITY for unregistered capability', () => {
 test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const bad = engine.validate(
-    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two' } }"
+    "${ need({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two' } }"
   );
   assertHasCode(bad, DiagnosticCode.NON_EXHAUSTIVE_MATCH);
 
   const good = engine.validate(
-    "${ require({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two', * => 'other' } }"
+    "${ need({id:'n',type:int(),capability:'user'}) match { 1 => 'one', 2 => 'two', * => 'other' } }"
   );
   assertCodes(good, []);
 });
@@ -51,13 +51,13 @@ test('IMPL B.3 — NON_EXHAUSTIVE_MATCH without default arm', () => {
 test('IMPL B.3 — bool match with true+false is exhaustive without default', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const ok = engine.validate(
-    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes', false => 'no' } }"
+    "${ need({id:'b',type:bool(),capability:'user'}) match { true => 'yes', false => 'no' } }"
   );
   assertCodes(ok, []);
 
   // A single boolean arm does NOT cover the domain → still non-exhaustive.
   const partial = engine.validate(
-    "${ require({id:'b',type:bool(),capability:'user'}) match { true => 'yes' } }"
+    "${ need({id:'b',type:bool(),capability:'user'}) match { true => 'yes' } }"
   );
   assertHasCode(partial, DiagnosticCode.NON_EXHAUSTIVE_MATCH);
 });

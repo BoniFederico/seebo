@@ -34,7 +34,7 @@ test('POLICY_FORBIDDEN when a used capability is not allow-listed', () => {
     capabilities: { crm: () => 'x', user: () => undefined },
     policy: { allowedCapabilities: ['user'] },
   });
-  const diags = engine.validate("${ require({ id:'k', type:string(), capability:'crm' }) }");
+  const diags = engine.validate("${ need({ id:'k', type:string(), capability:'crm' }) }");
   assertHasCode(diags, DiagnosticCode.POLICY_FORBIDDEN);
   const d = diags.find((x) => x.code === DiagnosticCode.POLICY_FORBIDDEN);
   assert.deepEqual(d?.data, { kind: 'capability', name: 'crm' });
@@ -80,7 +80,7 @@ test('builtin producers and type builders are accepted', () => {
 test('a declared requirement is referenceable by name without UNDECLARED_NAME', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const diags = engine.validate(
-    "${ require({ id:'name', type:string(), capability:'user' }) }${ name }"
+    "${ need({ id:'name', type:string(), capability:'user' }) }${ name }"
   );
   assert.ok(!codesOf(diags).includes(DiagnosticCode.UNDECLARED_NAME));
 });
@@ -123,17 +123,17 @@ test('no false positives: valid pipelines and unknown types produce no type diag
   assertCodes(engine.validate('${ int(1) + int(2) }'), []);
   // A member access yields an unknown type, which suppresses downstream method checks.
   assertCodes(
-    engine.validate("${ require({id:'o',type:object(),capability:'user'}).whatever.foo() }"),
+    engine.validate("${ need({id:'o',type:object(),capability:'user'}).whatever.foo() }"),
     []
   );
 });
 
 test('a declared requirement type drives method inference (datetime → UNKNOWN_METHOD)', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
-  const tpl = "${ require({id:'d',type:datetime(),capability:'user'}) }${ d.upper() }";
+  const tpl = "${ need({id:'d',type:datetime(),capability:'user'}) }${ d.upper() }";
   assertHasCode(engine.validate(tpl), DiagnosticCode.UNKNOWN_METHOD);
   // The same datetime supports .year(), so that pipeline is clean.
-  const ok = "${ require({id:'d',type:datetime(),capability:'user'}) }${ d.year() }";
+  const ok = "${ need({id:'d',type:datetime(),capability:'user'}) }${ d.year() }";
   assert.ok(!codesOf(engine.validate(ok)).includes(DiagnosticCode.UNKNOWN_METHOD));
 });
 

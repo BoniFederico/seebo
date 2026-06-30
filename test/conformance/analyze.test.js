@@ -11,10 +11,10 @@ import { realEngine } from '../helpers/index.js';
 // SPEC §2.3 — the documented analyze example: country (phase 1) gates city (phase 2).
 //
 // Input template:
-//   ${ require({ id:'country', capability:'user', label:'Country',
+//   ${ need({ id:'country', capability:'user', label:'Country',
 //                type: array().constraints({ values:['IT','US'] }) }) }
 //   ${ country == 'IT'
-//        ? require({ id:'city', capability:'user', label:'City', type: string() })
+//        ? need({ id:'city', capability:'user', label:'City', type: string() })
 //        : '' }
 //
 // Expected (SPEC §2.3):
@@ -25,8 +25,8 @@ import { realEngine } from '../helpers/index.js';
 test('SPEC §2.3 — analyze computes phases, graph and plan', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template = [
-    "${ require({ id:'country', capability:'user', label:'Country', type: array().constraints({ values:['IT','US'] }) }) }",
-    "${ country == 'IT' ? require({ id:'city', capability:'user', label:'City', type: string() }) : '' }",
+    "${ need({ id:'country', capability:'user', label:'Country', type: array().constraints({ values:['IT','US'] }) }) }",
+    "${ country == 'IT' ? need({ id:'city', capability:'user', label:'City', type: string() }) : '' }",
   ].join('\n');
 
   const a = engine.analyze(template);
@@ -54,12 +54,12 @@ test('SPEC §2.3 — analyze computes phases, graph and plan', () => {
 });
 
 // IMPL Appendix B.1 — requirement in nested branches: phase(c) = 1 + max(phase(a),phase(b)).
-//   Input: ${ a == 'x' ? (b == 'y' ? require({id:'c',type:string(),capability:'user'}) : '') : '' }
+//   Input: ${ a == 'x' ? (b == 'y' ? need({id:'c',type:string(),capability:'user'}) : '') : '' }
 //   Expected: edges a→c and b→c; phase(c) = 2 (a,b unconditional); maxPhases ≥ 2.
 test('IMPL B.1 — nested-branch requirement phase', () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template =
-    "${ a == 'x' ? (b == 'y' ? require({id:'c', type:string(), capability:'user'}) : '') : '' }";
+    "${ a == 'x' ? (b == 'y' ? need({id:'c', type:string(), capability:'user'}) : '') : '' }";
   const a = engine.analyze(template);
   const edges = a.requirementGraph.edges.map((e) => e.join('→')).sort();
   assert.deepEqual(edges, ['a→c', 'b→c']);

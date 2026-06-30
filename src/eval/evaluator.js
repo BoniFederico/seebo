@@ -38,7 +38,12 @@ import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js'
 import { DEFAULT_LIMITS } from '../util/limits.js';
 import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
-import { collectDeclarations, extractRequirement } from './symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractBinding,
+  applyCapabilityContract,
+} from './symbols.js';
 import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
 import { buildActionDescriptor } from '../actions/plan.js';
 
@@ -66,7 +71,9 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @property {boolean} [optional]
  * @property {number} [priority]
  * @property {string} [group]
- * @property {Record<string, unknown>} [resolverHints]
+ * @property {Record<string, unknown>} [args]  Opaque data forwarded to the capability provider; may depend on other bindings (SPEC §2.4). Computed at eval time; what the provider receives.
+ * @property {import('../ast/nodes.js').Expr} [argsNode]  Internal: the raw `args` AST, kept in the symbol table so the evaluator can compute `args` per pass. Never serialized into `pending`.
+ * @property {string[]} [argDeps]  Internal: binding names the `args` expression references (the dependency edges). Never serialized into `pending`.
  * @property {number} [phase]
  * @property {unknown[]} [options]
  */
@@ -87,6 +94,7 @@ const TYPE_NAMES = new Set(BUILTIN_TYPE_NAMES);
  * @property {Map<string, { kind: string, descriptor: RequirementDescriptor }>} symbols
  * @property {Map<string, RequirementDescriptor>} needs  Accumulated active Needs (by id).
  * @property {Map<string, import('../actions/contracts.js').ActionDescriptor>} [actions]  Active action declarations (by id), in reach order.
+ * @property {Set<string>} [argResolving]  Ids whose dynamic `args` are currently being resolved (SPEC §2.4 cycle guard).
  * @property {import('../index.js').EngineConfig} [config]
  * @property {() => Date} clock
  * @property {number} [steps]  Evaluator step counter for the current pass (IMPL §13).
@@ -344,21 +352,64 @@ function resolveRef(name, ctx, node) {
   return err(DiagnosticCode.UNDECLARED_NAME, node, `'${name}' is not declared`, { name });
 }
 
-/** @param {{ kind: string, descriptor: RequirementDescriptor }} decl @param {EvalContext} ctx */
+/** @param {{ kind: string, descriptor: any }} decl @param {EvalContext} ctx */
 function resolveDeclaration(decl, ctx) {
   if (decl.kind === 'var') return resolveValueOrDefault(decl.descriptor, ctx, true);
+  // An `action` binding referenced by name (`${ ticket }`) records the action into the plan and
+  // emits nothing — the same effect as an inline `action({...})`, deferred to the reference site.
+  // The binding name supplies the action `id`.
+  if (decl.kind === 'action') {
+    return evalAction(decl.descriptor.actionNode, ctx, decl.descriptor.id);
+  }
   return resolveRequirement(decl.descriptor, ctx);
 }
 
 /**
  * Resolution precedence for a requirement (SPEC §1.7, IMPL §5):
- * resolved → default → (optional ⇒ empty) → Need.
- * @param {RequirementDescriptor} d @param {EvalContext} ctx @returns {EvalResult}
+ * resolved → default → (optional ⇒ empty) → Need. The capability **contract** (declared via
+ * `defineCapability`) is merged first, so an inherited `type`/`default` drives resolution and the
+ * emitted Need carries the full type (SPEC §1.6).
+ *
+ * Dynamic `args` (SPEC §2.4): when the descriptor carries an `argsNode` (a capability-`args`
+ * expression that may reference other bindings), it is evaluated against the current environment
+ * **before** the Need is emitted. If a referenced binding is unresolved the args evaluation
+ * suspends, so this need is gated behind its dependency (the dependency's Need surfaces first);
+ * once the dependency resolves, the Need is emitted with the computed `args` attached (and the raw
+ * `argsNode`/`argDeps` stripped, keeping `pending` JSON-safe).
+ *
+ * @param {RequirementDescriptor} rawD @param {EvalContext} ctx @returns {EvalResult}
  */
-function resolveRequirement(d, ctx) {
-  if (Object.prototype.hasOwnProperty.call(ctx.resolved, d.id)) {
-    return ok(asValue(ctx.resolved[d.id]));
+function resolveRequirement(rawD, ctx) {
+  if (Object.prototype.hasOwnProperty.call(ctx.resolved, rawD.id)) {
+    return ok(asValue(ctx.resolved[rawD.id]));
   }
+  const merged = applyCapabilityContract(
+    rawD,
+    /** @type {any} */ (ctx.config)?.capabilityContracts
+  );
+
+  // Resolve dynamic args first so the Need is only emitted once its dependencies are available.
+  const argsNode = /** @type {any} */ (merged).argsNode;
+  let d = merged;
+  if (argsNode !== undefined) {
+    // Cycle guard (SPEC §2.4): an args dependency cycle (a→b→a) would recurse forever.
+    const resolving = ctx.argResolving ?? (ctx.argResolving = new Set());
+    if (resolving.has(merged.id)) {
+      return err(
+        DiagnosticCode.CYCLE_DETECTED,
+        /** @type {any} */ (argsNode),
+        `dependency cycle in 'args' of '${merged.id}'`,
+        { id: merged.id }
+      );
+    }
+    resolving.add(merged.id);
+    const built = evalActionInput(argsNode, ctx);
+    resolving.delete(merged.id);
+    if (built.error) return built.error;
+    if (built.blocked) return susp(built.blocked); // gated behind an unresolved dependency
+    d = stripArgsAst(merged, built.value);
+  }
+
   const type = d.type ?? { type: 'string' };
   if (type.default !== undefined) return ok(fromJs(type.default));
   if (d.optional === true) return ok(emptyValue(type.type));
@@ -366,19 +417,31 @@ function resolveRequirement(d, ctx) {
   return susp(d);
 }
 
-/** @param {RequirementDescriptor} d @param {EvalContext} ctx @param {boolean} isVar */
-function resolveValueOrDefault(d, ctx, isVar) {
+/**
+ * Returns a copy of a requirement descriptor with the resolved `args` attached and the internal
+ * `argsNode`/`argDeps` removed, so the descriptor placed into `pending` is JSON-serializable.
+ * @param {RequirementDescriptor} d @param {Record<string, unknown>} args @returns {RequirementDescriptor}
+ */
+function stripArgsAst(d, args) {
+  const out = /** @type {any} */ ({ ...d, args });
+  delete out.argsNode;
+  delete out.argDeps;
+  return out;
+}
+
+/** @param {RequirementDescriptor} d @param {EvalContext} ctx @param {boolean} isValueBinding */
+function resolveValueOrDefault(d, ctx, isValueBinding) {
   if (Object.prototype.hasOwnProperty.call(ctx.resolved, d.id)) {
     return ok(asValue(ctx.resolved[d.id]));
   }
   const type = d.type ?? { type: 'string' };
   if (type.default !== undefined) return ok(fromJs(type.default));
-  if (isVar) {
+  if (isValueBinding) {
     return errDiag(
       createDiagnostic(DiagnosticCode.CONSTRAINT_VIOLATION, {
         phase: 'run',
         recoverable: false,
-        message: `missing value for var '${d.id}'`,
+        message: `missing value for binding '${d.id}'`,
         data: { id: d.id },
       })
     );
@@ -453,7 +516,7 @@ function evalTernary(e, ctx) {
 
 /** @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx */
 function evalCall(e, ctx) {
-  if (e.callee === 'require') {
+  if (e.callee === 'need') {
     let descriptor;
     try {
       descriptor = extractRequirement(e);
@@ -462,7 +525,7 @@ function evalCall(e, ctx) {
     }
     return resolveRequirement(descriptor, ctx);
   }
-  if (e.callee === 'var') return resolveRef(varName(e), ctx, e);
+  if (e.callee === 'bind') return evalBind(e, ctx);
   if (e.callee === 'action') return evalAction(e, ctx);
   if (e.callee === 'now') return ok(makeDatetime(ctx.clock().getTime()));
   if (e.callee === 'date') return evalDate(e, ctx);
@@ -508,6 +571,22 @@ function evalCall(e, ctx) {
 }
 
 /**
+ * Evaluates a `bind(name, descriptor)` declaration (SPEC §1.7). A binding is a pure declaration:
+ * the name is registered statically by {@link collectDeclarations}, so here it emits nothing. The
+ * bound value/need/effect is resolved or activated only where the name is referenced (`${ name }`).
+ * Validates the call shape so a malformed `bind` is a runtime error rather than a silent no-op.
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} _ctx @returns {EvalResult}
+ */
+function evalBind(e, _ctx) {
+  try {
+    extractBinding(e); // shape validation; the binding is already registered in the symbol table
+  } catch (ex) {
+    return errFrom(ex, e);
+  }
+  return ok(makeString(''));
+}
+
+/**
  * Evaluates an `action({...})` declaration (SPEC §2.8). This is an **effect declaration**, not
  * a value: it records an {@link import('../actions/contracts.js').ActionDescriptor} into
  * `ctx.actions` and emits the empty string into the document. The pure core never executes the
@@ -518,9 +597,12 @@ function evalCall(e, ctx) {
  * input suspends; the `Need` is still recorded (so the normal suspend/resume flow drives it)
  * and the descriptor is recorded with `status: 'blocked'` and the resolved-so-far input.
  *
- * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @returns {EvalResult}
+ * When activated through a `bind(name, action({...}))` reference, `idFromBind` supplies the
+ * action `id` (so it need not be repeated in the descriptor).
+ *
+ * @param {import('../ast/nodes.js').CallNode} e @param {EvalContext} ctx @param {string} [idFromBind] @returns {EvalResult}
  */
-function evalAction(e, ctx) {
+function evalAction(e, ctx, idFromBind) {
   const obj = e.args[0];
   if (!obj || obj.kind !== 'ObjectLit') {
     return err(DiagnosticCode.SYNTAX_ERROR, e, 'action(...) expects a descriptor object');
@@ -528,6 +610,7 @@ function evalAction(e, ctx) {
 
   /** @type {Record<string, unknown>} */
   const fields = {};
+  if (idFromBind !== undefined) fields.id = idFromBind;
   let blockedNeed = null;
   for (const entry of /** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj).entries) {
     if (entry.key === '__proto__') continue;
@@ -867,12 +950,6 @@ function parseDate(pattern, text) {
 /* ----------------------------------------------------------------------------------- *
  * Helpers
  * ----------------------------------------------------------------------------------- */
-
-/** @param {import('../ast/nodes.js').CallNode} e */
-function varName(e) {
-  const n = /** @type {any} */ (e.args[0]);
-  return n && n.kind === 'Lit' ? String(n.value) : '';
-}
 
 /** @param {unknown} x @returns {import('../runtime/values.js').Value} */
 function asValue(x) {

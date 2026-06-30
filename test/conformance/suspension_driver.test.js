@@ -48,7 +48,7 @@ test('clarifications §10 — provided values satisfy interactive Needs', async 
 test('IMPL §5 — phased resolution through a gating condition', async () => {
   const engine = realEngine({ capabilities: { user: () => undefined } });
   const template =
-    "${ paese == 'IT' ? require({ id:'citta', type:string(), capability:'user' }) : 'n/a' }";
+    "${ paese == 'IT' ? need({ id:'citta', type:string(), capability:'user' }) : 'n/a' }";
 
   // paese = US → the gated requirement is never active.
   const us = engine.run(engine.start(template, { paese: 'US' }));

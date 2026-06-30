@@ -6,7 +6,7 @@
  *
  *  - {@link DiagnosticCode.UNDECLARED_NAME} — a reference to an undeclared identifier;
  *  - {@link DiagnosticCode.UNKNOWN_FUNCTION} — a call to an unknown producer/library;
- *  - {@link DiagnosticCode.UNKNOWN_CAPABILITY} — a `require` citing an unregistered capability;
+ *  - {@link DiagnosticCode.UNKNOWN_CAPABILITY} — a `need` citing an unregistered capability;
  *  - {@link DiagnosticCode.POLICY_FORBIDDEN} — a capability excluded by `policy.allowedCapabilities`;
  *  - {@link DiagnosticCode.NON_EXHAUSTIVE_MATCH} — a `match` with no `*` default arm (IMPL §3/B.3);
  *  - {@link DiagnosticCode.UNKNOWN_METHOD} — a method that does not exist on the (statically
@@ -25,7 +25,12 @@
  */
 
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractActionStatic,
+  applyCapabilityContract,
+} from '../eval/symbols.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
 import {
   TYPE_NAMES,
@@ -68,6 +73,7 @@ export function validate(template, config) {
 
   const symbols = collectDeclarations(ast);
   const capabilities = new Set(Object.keys(cfg.capabilities ?? {}));
+  const capabilityContracts = /** @type {any} */ (cfg).capabilityContracts;
   const allowedCapabilities = cfg.policy?.allowedCapabilities;
   const allowedTypes = cfg.policy?.allowedTypes;
   const allowedFunctions = cfg.policy?.allowedFunctions;
@@ -192,14 +198,15 @@ export function validate(template, config) {
    */
   function validateCall(call) {
     const callee = call.callee;
-    if (callee === 'require') {
+    if (callee === 'need') {
       validateRequire(call);
       for (const arg of call.args) walk(arg);
       return declaredCallType(call);
     }
-    if (callee === 'var') {
-      for (const arg of call.args) walk(arg);
-      return declaredCallType(call);
+    if (callee === 'bind') {
+      validateBind(call);
+      // The bound type is the descriptor's type; the descriptor (2nd arg) is walked by validateBind.
+      return declaredBindType(call);
     }
     if (callee === 'action') {
       validateAction(call);
@@ -329,30 +336,93 @@ export function validate(template, config) {
   }
 
   /**
-   * Resolves the declared base type of a `require`/`var` call (the descriptor's `type`),
-   * normalized to `'unknown'` for custom (non-builtin) types.
+   * Resolves the declared base type of a `need(...)` call: the descriptor's `type`, after merging
+   * the capability contract (so an inherited type is reported), normalized to `'unknown'` for
+   * custom (non-builtin) types.
    * @param {import('../ast/nodes.js').CallNode} call
    * @returns {import('./infer.js').InferredType}
    */
   function declaredCallType(call) {
     try {
-      const d = extractRequirement(call);
+      const d = applyCapabilityContract(extractRequirement(call), capabilityContracts);
       return normalizeType(/** @type {any} */ (d).type?.type);
     } catch {
       return 'unknown';
     }
   }
 
-  /** @param {import('../ast/nodes.js').CallNode} call */
-  function validateRequire(call) {
-    let descriptor;
-    try {
-      descriptor = extractRequirement(call);
-    } catch {
-      // A malformed descriptor is reported as a syntax-level issue by parse/run; skip here.
+  /**
+   * Resolves the inferred type of a `bind('name', descriptor)` — the type of its descriptor
+   * (the 2nd argument), obtained by walking it. A malformed/missing descriptor is `'unknown'`.
+   * @param {import('../ast/nodes.js').CallNode} call
+   * @returns {import('./infer.js').InferredType}
+   */
+  function declaredBindType(call) {
+    const desc = /** @type {any} */ (call.args[1]);
+    if (!desc) return 'unknown';
+    // Side-effect-free type inference (diagnostics are emitted by validateBind, not here):
+    if (desc.kind === 'Call') {
+      if (desc.callee === 'need') return declaredCallType(desc); // requirement's (inherited) type
+      if (desc.callee === 'action') return 'string'; // an action binding renders the empty string
+      if (TYPE_NAMES.has(desc.callee)) return /** @type {any} */ (desc.callee); // bare builder `int()`
+    }
+    if (desc.kind === 'Method') return builderBaseType(desc); // builder chain root, e.g. int().default(1)
+    return 'unknown';
+  }
+
+  /**
+   * Validates a `bind('name', descriptor)` declaration: the name must be a string literal, and a
+   * descriptor must be present. The descriptor (a type-builder, `need(...)` or `action(...)`) is
+   * walked so its own diagnostics (capability/action checks) are reported.
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validateBind(call) {
+    const nameNode = /** @type {any} */ (call.args[0]);
+    if (!nameNode || nameNode.kind !== 'Lit' || nameNode.type !== 'string') {
+      diagnostics.push(diag(DiagnosticCode.SYNTAX_ERROR, call, 'bind(...) expects a string name'));
+    }
+    const desc = /** @type {any} */ (call.args[1]);
+    if (desc === undefined) {
+      diagnostics.push(
+        diag(
+          DiagnosticCode.SYNTAX_ERROR,
+          call,
+          'bind(...) needs a descriptor (type, need(...) or action(...))'
+        )
+      );
       return;
     }
-    const cap = descriptor.capability;
+    // The descriptor must be a type-builder, `need(...)` or `action(...)`; anything else (a bare
+    // literal, an arbitrary expression) is reported clearly rather than leaving the bound name
+    // unregistered (which would surface as a misleading `UNDECLARED_NAME` at the use site).
+    if (!isBindDescriptor(desc)) {
+      diagnostics.push(
+        diag(
+          DiagnosticCode.SYNTAX_ERROR,
+          desc,
+          'bind(...) descriptor must be a type, need(...) or action(...)'
+        )
+      );
+      return;
+    }
+    // Walk `need(...)`/`action(...)` so their own diagnostics (capability/action checks) surface.
+    // A type-builder descriptor (`int().constraints({...})`) is NOT walked as an expression: its
+    // chained `.constraints`/`.format`/`.default` are builder configuration, not value methods, so
+    // walking it would mis-report `UNKNOWN_METHOD`. Its well-formedness is checked at run/extract.
+    if (desc.kind === 'Call' && (desc.callee === 'need' || desc.callee === 'action')) {
+      walk(desc);
+    }
+  }
+
+  /**
+   * Validates a `need({...})` call: the capability must be registered and allowed by policy. The
+   * `capability` is read directly from the descriptor object, so it is checked even when the `id`
+   * is supplied by an enclosing `bind` (and therefore absent from the descriptor itself).
+   * @param {import('../ast/nodes.js').CallNode} call
+   */
+  function validateRequire(call) {
+    const cap = capabilityOf(call);
+    if (cap === undefined) return; // malformed descriptor; surfaced as a syntax issue by parse/run
     if (cap && !capabilities.has(cap)) {
       diagnostics.push(
         diag(DiagnosticCode.UNKNOWN_CAPABILITY, call, `capability '${cap}' is not registered`, {
@@ -559,6 +629,55 @@ export function validate(template, config) {
 /** `true` when an expression is a literal node (used to decide whether a non-string id/type is a static error). @param {import('../ast/nodes.js').Expr} expr @returns {boolean} */
 function isLiteralKind(expr) {
   return /** @type {any} */ (expr)?.kind === 'Lit';
+}
+
+/**
+ * `true` when `expr` is a valid `bind` descriptor: `need(...)`, `action(...)`, or a type-builder
+ * (`int()`, `string().constraints({...})` — a `Call` to a builtin type, or a `Method` chain rooted
+ * in one). Anything else (a bare literal, an arbitrary expression) is rejected by `validate`.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {boolean}
+ */
+function isBindDescriptor(expr) {
+  const e = /** @type {any} */ (expr);
+  if (!e || typeof e !== 'object') return false;
+  if (e.kind === 'Call')
+    return e.callee === 'need' || e.callee === 'action' || TYPE_NAMES.has(e.callee);
+  if (e.kind === 'Method') return isBindDescriptor(e.receiver); // builder chain (.constraints/.default/…)
+  return false;
+}
+
+/**
+ * Returns the base type at the root of a type-builder chain (`int().default(1)` → `'int'`), or
+ * `'unknown'` if the root is not a builtin type builder. Side-effect free.
+ * @param {import('../ast/nodes.js').Expr} expr
+ * @returns {import('./infer.js').InferredType}
+ */
+function builderBaseType(expr) {
+  let e = /** @type {any} */ (expr);
+  while (e && e.kind === 'Method') e = e.receiver;
+  if (e && e.kind === 'Call' && TYPE_NAMES.has(e.callee)) {
+    return /** @type {import('./infer.js').InferredType} */ (e.callee);
+  }
+  return 'unknown';
+}
+
+/**
+ * Reads the literal `capability` string from a `need({...})` descriptor, independent of the `id`
+ * (which a `bind` may supply). Returns `undefined` when the descriptor is missing/non-literal.
+ * @param {import('../ast/nodes.js').CallNode} call
+ * @returns {string | undefined}
+ */
+function capabilityOf(call) {
+  const obj = /** @type {any} */ (call.args[0]);
+  if (!obj || obj.kind !== 'ObjectLit') return undefined;
+  for (const entry of obj.entries) {
+    if (entry.key === 'capability') {
+      const v = /** @type {any} */ (entry.value);
+      return v.kind === 'Lit' && v.type === 'string' ? /** @type {string} */ (v.value) : undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
