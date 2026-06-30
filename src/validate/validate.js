@@ -25,7 +25,12 @@
  */
 
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractActionStatic,
+  applyCapabilityContract,
+} from '../eval/symbols.js';
 import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js';
 import {
   TYPE_NAMES,
@@ -68,6 +73,7 @@ export function validate(template, config) {
 
   const symbols = collectDeclarations(ast);
   const capabilities = new Set(Object.keys(cfg.capabilities ?? {}));
+  const capabilityContracts = /** @type {any} */ (cfg).capabilityContracts;
   const allowedCapabilities = cfg.policy?.allowedCapabilities;
   const allowedTypes = cfg.policy?.allowedTypes;
   const allowedFunctions = cfg.policy?.allowedFunctions;
@@ -330,14 +336,15 @@ export function validate(template, config) {
   }
 
   /**
-   * Resolves the declared base type of a `need({...})` call (the descriptor's `type`),
-   * normalized to `'unknown'` for custom (non-builtin) types.
+   * Resolves the declared base type of a `need(...)` call: the descriptor's `type`, after merging
+   * the capability contract (so an inherited type is reported), normalized to `'unknown'` for
+   * custom (non-builtin) types.
    * @param {import('../ast/nodes.js').CallNode} call
    * @returns {import('./infer.js').InferredType}
    */
   function declaredCallType(call) {
     try {
-      const d = extractRequirement(call);
+      const d = applyCapabilityContract(extractRequirement(call), capabilityContracts);
       return normalizeType(/** @type {any} */ (d).type?.type);
     } catch {
       return 'unknown';

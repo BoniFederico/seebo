@@ -38,7 +38,12 @@ import { createDiagnostic, DiagnosticCode, SeeboError } from '../util/errors.js'
 import { DEFAULT_LIMITS } from '../util/limits.js';
 import { applyUnary, applyBinary, isEmpty } from './operators.js';
 import { applyMethod } from './methods.js';
-import { collectDeclarations, extractRequirement, extractBinding } from './symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractBinding,
+  applyCapabilityContract,
+} from './symbols.js';
 import { BUILTIN_TYPE_NAMES } from '../util/vocabulary.js';
 import { buildActionDescriptor } from '../actions/plan.js';
 
@@ -358,13 +363,16 @@ function resolveDeclaration(decl, ctx) {
 
 /**
  * Resolution precedence for a requirement (SPEC §1.7, IMPL §5):
- * resolved → default → (optional ⇒ empty) → Need.
- * @param {RequirementDescriptor} d @param {EvalContext} ctx @returns {EvalResult}
+ * resolved → default → (optional ⇒ empty) → Need. The capability **contract** (declared via
+ * `defineCapability`) is merged first, so an inherited `type`/`default` drives resolution and the
+ * emitted Need carries the full type (SPEC §1.6).
+ * @param {RequirementDescriptor} rawD @param {EvalContext} ctx @returns {EvalResult}
  */
-function resolveRequirement(d, ctx) {
-  if (Object.prototype.hasOwnProperty.call(ctx.resolved, d.id)) {
-    return ok(asValue(ctx.resolved[d.id]));
+function resolveRequirement(rawD, ctx) {
+  if (Object.prototype.hasOwnProperty.call(ctx.resolved, rawD.id)) {
+    return ok(asValue(ctx.resolved[rawD.id]));
   }
+  const d = applyCapabilityContract(rawD, /** @type {any} */ (ctx.config)?.capabilityContracts);
   const type = d.type ?? { type: 'string' };
   if (type.default !== undefined) return ok(fromJs(type.default));
   if (d.optional === true) return ok(emptyValue(type.type));

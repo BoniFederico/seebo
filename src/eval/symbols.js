@@ -109,24 +109,66 @@ function children(expr) {
 }
 
 /**
- * Extracts a requirement descriptor from a `need({...})` call (SPEC §1.6). When the call is the
- * descriptor of a `bind(name, need({...}))`, the binding `name` supplies the `id` (so it need not
- * be repeated in the descriptor); otherwise the descriptor itself must carry a string `id`.
+ * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). Two forms:
+ *  - `need('cap')` — a string shorthand: the capability whose contract supplies the rest;
+ *  - `need({ capability, type?, ... })` — the full descriptor object.
+ *
+ * When the call is the descriptor of a `bind(name, need(...))`, the binding `name` supplies the
+ * `id` (so it need not be repeated); otherwise the descriptor must carry a string `id`.
+ *
+ * The `type` is left **undefined** when the descriptor omits it, so a capability contract can fill
+ * it later (see {@link applyCapabilityContract}); the final fallback to `string()` is applied
+ * there. The merge is intentionally NOT done here — this pass is config-free and memoized.
+ *
  * @param {import('../ast/nodes.js').CallNode} call
  * @param {string} [idFromBind]  The enclosing `bind` name, injected as the requirement `id`.
  * @returns {import('./evaluator.js').RequirementDescriptor}
  */
 export function extractRequirement(call, idFromBind) {
-  const obj = call.args[0];
-  if (!obj || obj.kind !== 'ObjectLit') throw syntax('need(...) expects a descriptor object', call);
-  const d = readDescriptorObject(/** @type {import('../ast/nodes.js').ObjectLitNode} */ (obj));
+  const arg = call.args[0];
+  /** @type {Record<string, unknown>} */
+  let d;
+  if (arg && arg.kind === 'Lit' && /** @type {any} */ (arg).type === 'string') {
+    d = { capability: /** @type {any} */ (arg).value };
+  } else if (arg && arg.kind === 'ObjectLit') {
+    d = readDescriptorObject(/** @type {import('../ast/nodes.js').ObjectLitNode} */ (arg));
+  } else {
+    throw syntax('need(...) expects a capability name string or a descriptor object', call);
+  }
   if (idFromBind !== undefined && d.id === undefined) d.id = idFromBind;
   if (typeof d.id !== 'string') throw syntax("need descriptor needs a string 'id'", call);
   if (typeof d.capability !== 'string') {
     throw syntax(`need '${d.id}' needs a 'capability'`, call);
   }
-  if (!d.type) d.type = builder('string').toDescriptor();
   return /** @type {any} */ (d);
+}
+
+/**
+ * Fills a requirement descriptor's contract (`type`, `label`, `description`) from its capability's
+ * declared {@link import('../index.js').CapabilityContract}, with the **template winning** on every
+ * field it already provides (SPEC §1.6). The `type` (a full {@link
+ * import('../runtime/values.js').TypeDescriptor} carrying its own `constraints`/`format`) is taken
+ * from the template when present, else from the capability, else defaults to `string()`. Returns a
+ * new descriptor; the input is not mutated. Called by consumers that have the config (evaluator,
+ * `analyze`, `validate`) — the static collection stays contract-free and memoizable.
+ *
+ * @param {import('./evaluator.js').RequirementDescriptor} d
+ * @param {Record<string, import('../index.js').CapabilityContract>} [contracts]
+ * @returns {import('./evaluator.js').RequirementDescriptor}
+ */
+export function applyCapabilityContract(d, contracts) {
+  const contract = contracts?.[d.capability];
+  /** @type {any} */
+  const out = { ...d };
+  if (contract) {
+    if (out.type === undefined && contract.type !== undefined) out.type = contract.type;
+    if (out.label === undefined && contract.label !== undefined) out.label = contract.label;
+    if (out.description === undefined && contract.description !== undefined) {
+      out.description = contract.description;
+    }
+  }
+  if (!out.type) out.type = builder('string').toDescriptor();
+  return out;
 }
 
 /**

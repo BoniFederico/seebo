@@ -6,7 +6,12 @@
 
 import { ANALYSIS_VERSION } from '../util/versions.js';
 import { parse } from '../parser/index.js';
-import { collectDeclarations, extractRequirement, extractActionStatic } from '../eval/symbols.js';
+import {
+  collectDeclarations,
+  extractRequirement,
+  extractActionStatic,
+  applyCapabilityContract,
+} from '../eval/symbols.js';
 import { evaluate } from '../eval/evaluator.js';
 
 export { ANALYSIS_VERSION };
@@ -194,7 +199,12 @@ function analyzeUncached(template, config) {
   const capabilitiesUsed = [];
   for (const [id, decl] of symbols) {
     if (decl.kind !== 'require') continue;
-    const d = decl.descriptor;
+    // Merge the capability contract so the reported requirement carries the inherited type/label
+    // (SPEC §1.6); the template still wins on any field it declares.
+    const d = applyCapabilityContract(
+      decl.descriptor,
+      /** @type {any} */ (cfg).capabilityContracts
+    );
     const options = optionsOf(d);
     /** @type {import('../eval/evaluator.js').RequirementDescriptor} */
     const enriched = { ...d, phase: phaseOf(id, new Set()) };
