@@ -1,8 +1,8 @@
 # Usage & Extensibility
 
 Practical examples for using Seebo and extending it (SPEC §2.6). For the internal design
-see [`ARCHITECTURE.md`](ARCHITECTURE.md); the normative behaviour is in
-[`initial_docs/spec.md`](initial_docs/spec.md) and [`initial_docs/impl.md`](initial_docs/impl.md).
+see the [architecture overview](../architecture/overview.md); the normative behaviour is in
+[`spec.md`](../reference/spec.md) and [`impl.md`](../reference/impl.md).
 
 ## Creating an engine
 
@@ -42,7 +42,7 @@ name afterwards (`${ name }`). A reference to an undeclared name is an `UNDECLAR
 - `prepare(need(...) | action(...))` — declares a need/action **lazily** for reuse by its own `id`
   (carried by the descriptor). It emits nothing and is **not** activated at the `prepare` site —
   only where its id is referenced (`${ id }`). An `action(...)` so declared activates where its id
-  appears (see [`ACTIONS.md`](ACTIONS.md)).
+  appears (see [Actions](actions.md)).
 
 The distinction between **eager use** and **lazy declaration** matters:
 
@@ -342,76 +342,11 @@ const engine = createEngine({ clock: () => new Date('2026-06-26T10:00:00Z') });
 (await engine.stebo({ template: '${ now().year() }' })).output; // '2026'
 ```
 
-## Common errors
+## See also
 
-Diagnostics carry a stable `code` (the contract — never switch on `message`). Where they
-surface depends on whether the cause is structural (static) or value-dependent (runtime).
-
-| Symptom                                             | Code                                 | Where it surfaces                      |
-| --------------------------------------------------- | ------------------------------------ | -------------------------------------- |
-| Reference to an undeclared name                     | `UNDECLARED_NAME`                    | `validate`                             |
-| Unknown producer / un-enabled library               | `UNKNOWN_FUNCTION`                   | `validate` (and `run`)                 |
-| Method not on the inferred receiver type            | `UNKNOWN_METHOD`                     | `validate` (and `run`)                 |
-| Wrong argument count                                | `ARITY_MISMATCH`                     | `validate` (and `run`)                 |
-| Provable operator/argument type violation           | `TYPE_ERROR`                         | `validate`                             |
-| `match` without `*` over an open domain             | `NON_EXHAUSTIVE_MATCH`               | `validate`                             |
-| `need` cites an unregistered capability             | `UNKNOWN_CAPABILITY`                 | `validate`                             |
-| Type/function/capability excluded by `policy`       | `POLICY_FORBIDDEN`                   | `validate`                             |
-| Malformed syntax                                    | `SYNTAX_ERROR`                       | `parse` throws; `validate` returns one |
-| Value violates its own `constraints`                | `CONSTRAINT_VIOLATION`               | `run` (failed state)                   |
-| Type error only knowable from values                | `TYPE_ERROR_RUNTIME`                 | `run`                                  |
-| Division by zero                                    | `DIVISION_BY_ZERO`                   | `run`                                  |
-| Inclusion cycle / too-deep inclusion                | `INCLUSION_CYCLE` / `DEPTH_EXCEEDED` | `expand` → failed state                |
-| A resource limit was exceeded                       | `*_LIMIT_EXCEEDED`, `TIMEOUT`        | parse / run / driver                   |
-| Capability forbidden / errored / returned bad value | `CAPABILITY_*`                       | driver (failed state)                  |
-| State from a newer engine                           | `UNSUPPORTED_STATE_VERSION`          | `run`                                  |
-
-Two gotchas worth calling out:
-
-- **No implicit coercion.** `1 + 'a'` is a `TYPE_ERROR`; concatenate with `string(...)`:
-  `string(1) + 'a'`.
-- **"Empty" is `''` / `[]` / `{}`** for `??` — `0` and `false` are **not** empty, so
-  `0 ?? 9` is `0`.
-
-## Debugging
-
-The static, pure methods are the fastest way to understand a template without running it:
-
-```js
-// 1. Lexing (error-tolerant; never throws) — what the scanner sees.
-engine.tokenize('Hi ${ name.upper() }');
-
-// 2. Parsing — the AST, or a thrown SYNTAX_ERROR with a position.
-try {
-  engine.parse('${ 1 + }');
-} catch (e) {
-  e.code; // 'SYNTAX_ERROR'
-  e.position; // { start, end } offsets into the source
-}
-
-// 3. Validation — all static diagnostics at once (never throws).
-engine.validate('${ nome }').map((d) => d.code); // ['UNDECLARED_NAME']
-
-// 4. Analysis — what the template needs and in what order.
-const a = engine.analyze("${ user({ id:'x', type:string(), capability:'user' }) }");
-a.requirements; // declared requirements (enriched with phase/options)
-a.executionPlan; // requirements grouped by phase
-a.capabilitiesUsed; // ['user']
-a.deterministic; // false when now()/fake.* appear
-```
-
-When `stebo`/`run` returns `status: 'failed'`, the cause is in `state.diagnostics` (each with
-`code`, `message`, optional `position` and `data`). A `waiting` state exposes the open
-requirements in `state.pending`. The whole `PublicState` is JSON-serializable, so you can log
-it or persist it between turns:
-
-```js
-const state = engine.run(engine.start('${ int(5).constraints({ max: 3 }) }'));
-state.status; // 'failed'
-state.diagnostics[0].code; // 'CONSTRAINT_VIOLATION'
-JSON.parse(JSON.stringify(state)); // round-trips losslessly
-```
-
-To make capability outcomes observable, set `policy.audit` (a hook called per resolution,
-without the value in clear); to mask sensitive values in diagnostics and audit, list them in
-`policy.redact`.
+- [Troubleshooting](../troubleshooting/troubleshooting.md) — the symptom → diagnostic-code
+  table and the gotchas to know about (no implicit coercion, the meaning of "empty").
+- [Debugging](../development/debugging.md) — inspecting a template with the static, pure
+  methods (`tokenize`, `parse`, `validate`, `analyze`) and reading a failed state.
+- [Actions](actions.md) — declaring and executing external effects.
+- [API reference](../api/overview.md) — the full public surface and configuration tables.

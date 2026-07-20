@@ -1,8 +1,8 @@
-# Conformance
+# Testing & conformance
 
 How the test suite relates to the reference specification. Seebo's behaviour is defined by
-[`initial_docs/spec.md`](initial_docs/spec.md) (language + API) and
-[`initial_docs/impl.md`](initial_docs/impl.md) (implementation, including **Appendix A** —
+[`spec.md`](../reference/spec.md) (language + API) and
+[`impl.md`](../reference/impl.md) (implementation, including **Appendix A** —
 the normative diagnostic codes — and **Appendix B** — normative borderline cases). An
 implementation is **conformant** if it reproduces those behaviours.
 
@@ -71,8 +71,8 @@ Diagnostic `code` values are a **stable public contract**: they are never rename
 ones is non-breaking, IMPL §14). Conformance tests assert on `code`, never on `message`
 (which is human-readable and may be localized/redacted). The error-surfacing rule is also
 tested: structural problems surface statically (in `validate`/`parse`), while value-dependent
-problems surface in `run`/`driver`. See [`USAGE.md`](USAGE.md#common-errors) for the full
-symptom→code→phase table.
+problems surface in `run`/`driver`. See [Troubleshooting](../troubleshooting/troubleshooting.md#common-errors)
+for the full symptom→code→phase table.
 
 ## Determinism
 

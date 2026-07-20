@@ -1,0 +1,5 @@
+# Python toolchain for the documentation site only (the library itself has no
+# runtime dependencies). Used by `.github/workflows/docs.yml` and local previews:
+#   pip install -r requirements.txt && mkdocs serve
+mkdocs-material>=9.6,<10
+mkdocs-git-revision-date-localized-plugin>=1.2,<2

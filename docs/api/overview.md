@@ -2,8 +2,8 @@
 
 The public API of Seebo, summarized from the JSDoc contracts. Everything below is exported
 from the package entry point (`import { … } from 'seebo'`). Section references like
-`SPEC §x` / `IMPL §x` point to [`initial_docs/spec.md`](initial_docs/spec.md) and
-[`initial_docs/impl.md`](initial_docs/impl.md).
+`SPEC §x` / `IMPL §x` point to [`spec.md`](../reference/spec.md) and
+[`impl.md`](../reference/impl.md).
 
 The engine is **plain JavaScript + JSDoc**. The shapes below are documentation of the JSDoc
 typedefs, not TypeScript declarations.
@@ -85,7 +85,7 @@ re-wrapped via `fromJs` (no internal `Value`s leak; no `eval` of template text).
 | `defineLibrary(name, def?)`   | `'library'`       | `libraries`                                  | `functions: { fn: { arity?, eval } }`, invoked as `name.fn()`.                                                 |
 | `defineAction(type, handler)` | `'action'`        | `actions` _or_ `engine.defineAction(...)`    | Effect handler (`execute`, `dryRun?`, `compensate?`); runs only via `seebo/actions`.                           |
 
-See [`USAGE.md`](USAGE.md) for worked examples of each.
+See the [usage guide](../guide/usage.md) for worked examples of each.
 
 ---
 
@@ -112,7 +112,7 @@ import { executeActionPlan } from 'seebo/actions';
 `engine.defineAction(type, handler)` registers a handler on a live engine. The action contract
 enums (`ActionStatus`, `ActionErrorCode`, `ActionEventType`, `PlanStatus`) are re-exported from
 both `seebo` and `seebo/actions`. The execution APIs never throw — failures are structured
-`ActionReceipt`s carrying an `ActionError`. See [`ACTIONS.md`](ACTIONS.md) for the full model:
+`ActionReceipt`s carrying an `ActionError`. See [Actions](../guide/actions.md) for the full model:
 lifecycle, confirmation, dry-run, idempotency, retry, permissions/policy, audit/redaction and
 compensation.
 
@@ -140,17 +140,17 @@ compensation.
 
 ### `EnginePolicy`
 
-| Field                 | Type                             | Effect                                                                                                 |
-| --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `allowedTypes`        | `string[]`                       | Static allow-list; a forbidden type constructor → `POLICY_FORBIDDEN`.                                  |
-| `allowedFunctions`    | `string[]`                       | Static allow-list for producers/library fns/custom transformers.                                       |
-| `allowedCapabilities` | `string[]`                       | Hard allow-list; checked in `validate` and the driver.                                                 |
-| `trustLevel`          | `'trusted' \| 'untrusted'`       | Template trust level (default `'untrusted'`).                                                          |
-| `capabilityRules`     | `Record<string, CapabilityRule>` | Per-capability rules, checked **before** the provider runs.                                            |
-| `redact`              | `string[]`                       | Capability ids whose values are masked in diagnostics/audit.                                           |
-| `audit`               | `(event) => void`                | Hook per capability resolution (no value in clear). Default: noop.                                     |
-| `retry`               | `{ attempts, backoffMs }`        | Provider retry policy. Default: no retry.                                                              |
-| `action`              | `ActionPolicy`                   | Action controls (allow/deny types, environments, forced confirmation). See [`ACTIONS.md`](ACTIONS.md). |
+| Field                 | Type                             | Effect                                                                                                     |
+| --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `allowedTypes`        | `string[]`                       | Static allow-list; a forbidden type constructor → `POLICY_FORBIDDEN`.                                      |
+| `allowedFunctions`    | `string[]`                       | Static allow-list for producers/library fns/custom transformers.                                           |
+| `allowedCapabilities` | `string[]`                       | Hard allow-list; checked in `validate` and the driver.                                                     |
+| `trustLevel`          | `'trusted' \| 'untrusted'`       | Template trust level (default `'untrusted'`).                                                              |
+| `capabilityRules`     | `Record<string, CapabilityRule>` | Per-capability rules, checked **before** the provider runs.                                                |
+| `redact`              | `string[]`                       | Capability ids whose values are masked in diagnostics/audit.                                               |
+| `audit`               | `(event) => void`                | Hook per capability resolution (no value in clear). Default: noop.                                         |
+| `retry`               | `{ attempts, backoffMs }`        | Provider retry policy. Default: no retry.                                                                  |
+| `action`              | `ActionPolicy`                   | Action controls (allow/deny types, environments, forced confirmation). See [Actions](../guide/actions.md). |
 
 `CapabilityRule` = `{ allowFrom?: 'trusted'|'untrusted', audit?: boolean }`. `allowFrom: 'trusted'`
 forbids the capability for an untrusted template (`CAPABILITY_FORBIDDEN`); `audit: false` opts

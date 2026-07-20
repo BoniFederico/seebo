@@ -1,3 +1,6 @@
 node_modules
 coverage
-docs/initial_docs
+site
+.venv
+# The normative reference specs are kept verbatim (not reformatted).
+docs/reference
