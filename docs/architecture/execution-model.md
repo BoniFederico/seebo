@@ -20,12 +20,13 @@ stateDiagram-v2
 ```
 
 - `run(state) → state` evaluates as far as possible using only `state.resolved`, then
-  collects the active `Need`s into `pending`. Pure, synchronous (IMPL §6.2).
+  collects the active `Need`s into `pending`. Pure, synchronous.
 - The **driver** satisfies `Need`s via capabilities and re-runs. Capabilities returning
   `undefined` mean "not me" (`Unresolved`); those listed in `stopOn` are returned to the
-  caller (e.g. interactive `user`). See `ProviderOutcome` (IMPL §7.1).
-- v1 resumes by **full re-evaluation** (strategy 1, IMPL §6.4); continuations/checkpoints
-  are optional future optimizations and are intentionally absent.
+  caller (e.g. interactive `user`). See `ProviderOutcome` in the
+  [API reference](../api/overview.md#core-types).
+- v1 resumes by **full re-evaluation**; continuations/checkpoints are optional future
+  optimizations and are intentionally absent.
 
 ## The driver loop
 
@@ -53,7 +54,7 @@ Because `run` is pure and `PublicState` is JSON-serializable, the loop can stop 
 point, the state can be persisted or shipped across the network, and the conversation can
 resume later — on the same machine or a different one, client or server.
 
-## Public contracts and versioning (SPEC §2.1, IMPL §15)
+## Public contracts and versioning
 
 Three independently-versioned contracts cross the engine↔application boundary:
 
@@ -61,17 +62,17 @@ Three independently-versioned contracts cross the engine↔application boundary:
 - `stateVersion` — the `PublicState` shape (`src/run/run.js`).
 - `analysisVersion` — the `Analysis` shape (`src/analyze/analyze.js`).
 
-All start at `1` (clarifications §11). On `run`, a persisted `PublicState` is passed through
-`migrateState` (`src/util/versions.js`): an older `stateVersion` is upgraded by applying the
-registered migrators in sequence `v → v+1` (the `migrations` list is empty in v1), and a
-**newer** `stateVersion` is rejected with `UNSUPPORTED_STATE_VERSION` rather than guessed
-(IMPL §14, forward-compat not guaranteed).
+All start at `1`. On `run`, a persisted `PublicState` is passed through `migrateState`
+(`src/util/versions.js`): an older `stateVersion` is upgraded by applying the registered
+migrators in sequence `v → v+1` (the `migrations` list is empty in v1), and a **newer**
+`stateVersion` is rejected with `UNSUPPORTED_STATE_VERSION` rather than guessed
+(forward compatibility is not guaranteed).
 
-## v1 scope notes (clarifications)
+## v1 scope notes
 
 - All optimizations are **off by default**. `optimizations.astCache` is implemented as a
-  transparent in-memory parse/analysis cache (IMPL §11/§12.1); `lazyParse`, `stream` and
-  `objectPool` are accepted but inert. See [performance](../guide/performance.md).
+  transparent in-memory parse/analysis cache; `lazyParse`, `stream` and `objectPool` are
+  accepted but inert. See [performance](../guide/performance.md).
 - No streaming output (`steboStream`) is exposed in v1.
 - No external runtime dependencies. A built-in `fake.*` library is **not** shipped; it is only
   an example of what `defineLibrary` enables.
@@ -80,8 +81,7 @@ registered migrators in sequence `v → v+1` (the `migrations` list is empty in 
 
 ## Positions (normative contract)
 
-`Position` (`src/lexer/tokens.js`) is normatively **offset-based**: `{ start, end }`,
-matching IMPL §2 and Appendix A.
+`Position` (`src/lexer/tokens.js`) is normatively **offset-based**: `{ start, end }`.
 
 !!! warning "Only offsets are normative"
 

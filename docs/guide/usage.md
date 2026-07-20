@@ -1,8 +1,7 @@
 # Usage & Extensibility
 
-Practical examples for using Seebo and extending it (SPEC §2.6). For the internal design
-see the [architecture overview](../architecture/overview.md); the normative behaviour is in
-[`spec.md`](../reference/spec.md) and [`impl.md`](../reference/impl.md).
+Practical examples for using Seebo and extending it. For the internal design see the
+[architecture overview](../architecture/overview.md).
 
 ## Creating an engine
 
@@ -25,11 +24,11 @@ console.log(res.output); // "Order 42"
 ```
 
 `createEngine` binds the vocabulary once and **fails fast** on an invalid name (see
-[Name governance](#name-governance)). The returned engine exposes the SPEC §2.3–§2.5 methods
+[Name governance](#name-governance)). The returned engine exposes the full method surface
 (`tokenize`, `parse`, `validate`, `analyze`, `start`, `run`, `expand`, `finalize`, `drive`,
 `stebo`).
 
-## Declarations: `need`, `bind`, `prepare` (SPEC §1.6/§1.7)
+## Declarations: `need`, `bind`, `prepare`
 
 A template declares the data, values and effects it depends on, and references them **plain** by
 name afterwards (`${ name }`). A reference to an undeclared name is an `UNDECLARED_NAME` error.
@@ -69,7 +68,7 @@ its value forwarded to the provider (`need.args`), with `analyze` ordering the t
   "${ prepare(need({ id:'city', capability:'geo', args:{ region: region } })) }${ city }";
 ```
 
-## Extensibility (SPEC §2.6)
+## Extensibility
 
 All extensions are created with a `define*` factory that returns a **frozen descriptor**, then
 passed to `createEngine`. Names are validated/reserved when the engine is built.
@@ -131,7 +130,7 @@ parsing; calling an unregistered `ns.fn()` is an `UNKNOWN_FUNCTION` diagnostic.
 
 A capability resolves a `need`. Place the `defineCapability(...)` descriptor (or a bare resolver
 function) under the matching key of `capabilities` (the driver's wiring point). The capability
-name automatically becomes a producer (the `need` sugar of SPEC §1.6).
+name automatically becomes a producer (the `need` sugar).
 
 A capability may declare its own **contract** (`type`/`constraints` via a type builder, plus
 `label`/`description`). A `need('cap')` then inherits it, so the template need not repeat the type;
@@ -320,7 +319,7 @@ const res = await engine.stebo({
 
 ### Conditional layout with `@{REMOVE_LINE}`
 
-Layout macros let a formula remove its own line when a value is empty (SPEC §2.7):
+Layout macros let a formula remove its own line when a value is empty:
 
 ```js
 const res = await engine.stebo({

@@ -5,16 +5,16 @@ tree itself (`"files": ["src"]`).
 
 ```text
 src/
-  lexer/     # tokenization (IMPL §2)
-  parser/    # recursive descent + Pratt (IMPL §3)
-  ast/       # versioned AST + node factories (IMPL §3.1)
-  runtime/   # runtime type system + extension registry (IMPL §4, §3)
-  eval/      # suspendable evaluator Ok|Susp|Err (IMPL §5)
-  run/       # pure state machine: start/run (IMPL §6)
-  validate/  # static diagnostics + type inferencer (IMPL §8)
-  analyze/   # graph / plan / metrics / streamability (IMPL §9)
-  macros/    # expand (aggregators) + finalize (layout) (IMPL §10)
-  driver/    # async driver + stebo (IMPL §7)
+  lexer/     # tokenization
+  parser/    # recursive descent + Pratt
+  ast/       # versioned AST + node factories
+  runtime/   # runtime type system + extension registry
+  eval/      # suspendable evaluator Ok|Susp|Err
+  run/       # pure state machine: start/run
+  validate/  # static diagnostics + type inferencer
+  analyze/   # graph / plan / metrics / streamability
+  macros/    # expand (aggregators) + finalize (layout)
+  driver/    # async driver + stebo
   actions/   # action contracts + planning (core-safe) + execution layer (seebo/actions)
   util/      # errors, versions, limits, builtin vocabulary
   index.js   # public façade: createEngine, builtins, define*
@@ -48,8 +48,9 @@ Two structural rules are enforced by tests:
 ## Tests and benchmarks
 
 - `test/unit/` — component tests pinning each module's contract in isolation.
-- `test/conformance/` — end-to-end tests derived directly from SPEC/IMPL; each case cites
-  the section it restates. See [Testing & conformance](../testing/testing.md).
+- `test/conformance/` — end-to-end tests derived directly from the reference
+  specification; each case cites the section it restates. See
+  [Testing & conformance](../testing/testing.md).
 - `test/helpers/` — the shared harness (`realEngine`, assertion helpers).
 - `bench/` — the warmed-up benchmark runner and fixtures. See
   [Performance](../guide/performance.md).
@@ -60,7 +61,7 @@ Two structural rules are enforced by tests:
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `npm test`                 | All tests (`node --test`).                                                        |
 | `npm run test:unit`        | Component tests only (`test/unit/**`).                                            |
-| `npm run test:conformance` | SPEC/IMPL-driven end-to-end tests (`test/conformance/**`).                        |
+| `npm run test:conformance` | Specification-driven end-to-end tests (`test/conformance/**`).                    |
 | `npm run lint`             | ESLint.                                                                           |
 | `npm run format:check`     | Prettier (verify; `format` writes).                                               |
 | `npm run typecheck`        | `tsc --noEmit` — validates JSDoc contracts, no output.                            |

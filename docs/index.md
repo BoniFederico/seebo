@@ -69,7 +69,6 @@ Details in the [architecture overview](architecture/overview.md).
 | [Security](security/security.md)                      | Threat model, limits, prototype-pollution protection, policy.      |
 | [Deployment](deployment/deployment.md)                | CI, the npm release workflow and the docs pipeline.                |
 | [Troubleshooting](troubleshooting/troubleshooting.md) | Symptom → diagnostic-code table, gotchas, known limitations.       |
-| [Reference](reference/index.md)                       | The normative language/implementation specs and design records.    |
 
 ## Status
 

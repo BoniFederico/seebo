@@ -35,7 +35,7 @@ All fields are optional. The full field-by-field tables live in the
 
 Every introduced name is validated at construction (**name governance**): reserved words are
 rejected (`RESERVED_NAME`) and each namespace enforces uniqueness (`NAME_CONFLICT`). See
-[Usage & extensibility](../guide/usage.md#extensibility-spec-26) for worked examples of
+[Usage & extensibility](../guide/usage.md#extensibility) for worked examples of
 every `define*` factory.
 
 ## Environment
@@ -48,7 +48,7 @@ every `define*` factory.
 
 ## Delimiters
 
-The three slot sigils are configurable (SPEC §1.2). Defaults:
+The three slot sigils are configurable. Defaults:
 
 ```js
 delimiters: { formula: '$', comment: '#', macro: '@', open: '{', close: '}' }

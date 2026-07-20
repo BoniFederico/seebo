@@ -50,7 +50,7 @@ Individually:
 
 - A behaviour change needs a test. Component-level edge cases go in `test/unit/`;
   spec-derived end-to-end cases go in `test/conformance/` with a comment citing the
-  SPEC/IMPL section they restate (see [testing](testing/testing.md)).
+  specification section they restate (see [testing](testing/testing.md)).
 - The suite must pass with **no skipped and no todo tests**.
 
 ## Commit and PR conventions
@@ -76,9 +76,10 @@ pip install -r requirements.txt
 mkdocs serve   # live preview at http://127.0.0.1:8000
 ```
 
-The navigation is defined in `mkdocs.yml`. The Italian reference specs under
-`docs/reference/` are normative historical documents — fix typos only per the
-[known quirks](reference/index.md#known-editorial-quirks-in-the-specs) notes.
+The navigation is defined in `mkdocs.yml`. The historical design documents the engine was
+built from live outside the site, in the repository's
+[`spec/`](https://github.com/BoniFederico/seebo/tree/master/spec) folder — they are
+archival records, kept verbatim.
 
 ## Releases
 

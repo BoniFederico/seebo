@@ -1,7 +1,7 @@
 # Security model
 
 How Seebo stays safe to run on **untrusted templates and untrusted data**, including on the
-client (SPEC §1.11/§2.2, IMPL §13). It documents the threat model, the configurable limits,
+client. It documents the threat model, the configurable limits,
 the prototype-pollution protections, and what is explicitly out of scope.
 
 ## Threat model
@@ -33,8 +33,8 @@ Trusted vs untrusted:
 
 All limits live in `config.limits` and have reasonable defaults
 ([`src/util/limits.js`](https://github.com/BoniFederico/seebo/blob/master/src/util/limits.js)).
-The four normative limits of SPEC §2.2 are
-kept; the rest are additive hardening guards (IMPL §13, non-breaking per §14). When a limit is
+The four original normative limits are
+kept; the rest are additive hardening guards. When a limit is
 exceeded the engine fails with a **specific diagnostic code** — never a silent truncation or a
 crash.
 
@@ -92,12 +92,11 @@ unsanitized value into the runtime.
 
 `createEngine` validates every introduced name against the reserved words (`RESERVED_NAME`) and
 for uniqueness in its namespace (`NAME_CONFLICT`), failing fast with `EngineConfigError`. This
-prevents extensions from shadowing builtins or each other (SPEC §1.5/§2.6).
+prevents extensions from shadowing builtins or each other.
 
 ## Capability authorization
 
-Capabilities are the only path to sensitive data, so their use is governed by `policy`
-(SPEC §2.2, IMPL §13), checked **before** a provider runs:
+Capabilities are the only path to sensitive data, so their use is governed by `policy`, checked **before** a provider runs:
 
 - `allowedCapabilities` — hard allow-list; an unlisted capability is `CAPABILITY_FORBIDDEN`.
 - `allowedTypes` / `allowedFunctions` — static allow-lists checked by `validate`; a forbidden
@@ -111,7 +110,7 @@ Capabilities are the only path to sensitive data, so their use is governed by `p
 A provider value is always validated against the requirement's declared type/constraints; an
 invalid value never enters `resolved` (`CAPABILITY_INVALID_VALUE`).
 
-## Action effects (SPEC §2.8)
+## Action effects
 
 Actions are the only path to outbound **effects**, and they are held to a stricter separation than
 capabilities: the **pure core never executes them**. `run`/`analyze`/`validate`/preview only

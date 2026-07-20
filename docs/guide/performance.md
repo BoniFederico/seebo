@@ -37,7 +37,7 @@ Reading the baseline:
 - The **lexer is already fast** and allocation-light (single linear pass, char-code
   classification). It is **not** a bottleneck.
 - **Parsing dominates** everything else, and it is re-done on every `render run()` (the v1
-  re-evaluation strategy re-parses each pass, IMPL §6.4) and inside `analyze`/`stebo`.
+  re-evaluation strategy re-parses each pass) and inside `analyze`/`stebo`.
 - `analyze` and `stebo` are the heaviest because they parse **and** do extra work.
 
 ## Hot spots and what was done
@@ -53,11 +53,11 @@ slicing). Adding char-code comparisons for the two-character operators was consi
 
 Cold parsing is ~3.8 ms / ~90 KB per template. That cost is intrinsic to building the AST: one
 node object plus one `{start,end}` position per syntactic element — required by the public AST
-contract (IMPL §3.1), so it cannot be removed without changing the contract. Two things were
+contract, so it cannot be removed without changing the contract. Two things were
 done:
 
 - **Removed `try/finally` from the hottest recursion** (`parseExpr`/`parseUnary`). The nesting
-  guard (IMPL §13) decrements depth on the normal return path; a thrown error aborts the whole
+  guard decrements depth on the normal return path; a thrown error aborts the whole
   parse, so the counter never needs unwinding. Cleaner code, small/neutral timing.
 - **The decisive fix is to avoid re-parsing at all** via the cache below.
 
@@ -74,9 +74,9 @@ jump table), so it was left as is. The real redundancy was elsewhere:
 
 ### Caching parse & analysis (the primary optimization)
 
-IMPL §11/§6.1 sanction memoizing `parse`/`analyze` by template (the `astRef` pattern), and
-IMPL §12.1 makes `astCache` an **opt-in** flag (default off, per clarifications §3 — so default
-behaviour and all tests are unchanged). When `optimizations.astCache` is enabled:
+The engine design sanctions memoizing `parse`/`analyze` by template (the `astRef`
+pattern), with `astCache` as an **opt-in** flag — default off, so default behaviour and
+all tests are unchanged. When `optimizations.astCache` is enabled:
 
 - [`src/parser/index.js`](https://github.com/BoniFederico/seebo/blob/master/src/parser/index.js) memoizes the AST per `(config, template)` —
   a `WeakMap` keyed by the config object identity (collected with the engine, never mixing
@@ -109,7 +109,7 @@ one-shot parses of ever-changing source it adds only a `WeakMap`/`Map` write.
 ## Summary of changes
 
 - `bench/` — runnable, warmed-up benchmark with timing and (opt-in) allocation estimate.
-- Parse cache + analysis cache, opt-in via `optimizations.astCache` (transparent, IMPL §11/§12.1).
+- Parse cache + analysis cache, opt-in via `optimizations.astCache` (transparent).
 - Memoized `collectDeclarations` by AST identity (removes redundant per-pass scanning).
 - Removed `try/finally` from the hottest parser recursion (clarity; nesting guard preserved).
 - Deliberately **left the lexer and the evaluator dispatch unchanged** — measurement showed no

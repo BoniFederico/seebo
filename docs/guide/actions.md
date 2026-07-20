@@ -1,6 +1,6 @@
 # Actions
 
-`action(...)` is Seebo's declarative construct for **external effects** (SPEC §2.8). It is the
+`action(...)` is Seebo's declarative construct for **external effects**. It is the
 fourth peer of the data-flow vocabulary:
 
 | Construct     | Role                                                   |

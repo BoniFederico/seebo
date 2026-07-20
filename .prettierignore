@@ -3,4 +3,4 @@ coverage
 site
 .venv
 # The normative reference specs are kept verbatim (not reformatted).
-docs/reference
+spec
