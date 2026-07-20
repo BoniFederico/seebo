@@ -26,16 +26,15 @@ The project is **plain JavaScript** — no TypeScript syntax, no `.d.ts` files, 
 
 ## 1. General rules
 
-| Rule                                                                                                      | Rationale                                                 |
-| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Use JSDoc only — no TypeScript syntax.                                                                    | The project is `.js`; TS types break plain-JS tooling.    |
-| One `@typedef` per conceptual type, in the file that owns it.                                             | Avoids duplication and drift.                             |
-| Cross-file references use `import(...)` paths, not bare names.                                            | Keeps tooling-resolvable without a tsconfig.              |
-| Optional properties are written `[propName]`.                                                             | Standard JSDoc convention.                                |
-| `@returns` is always present on non-`void` public functions.                                              | Makes the contract explicit.                              |
-| Spec/impl section references (`SPEC §x`, `IMPL §x`) go in the opening description, not in `@param` lines. | Keeps param lines short.                                  |
-| `@type {ReadonlyArray<T>}` / `@type {Readonly<Record<K,V>>}` for frozen constants.                        | Signals immutability to callers.                          |
-| Add `// TODO(doc): …` when a type is genuinely ambiguous.                                                 | Prefer an explicit marker over a silent wrong annotation. |
+| Rule                                                                               | Rationale                                                 |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Use JSDoc only — no TypeScript syntax.                                             | The project is `.js`; TS types break plain-JS tooling.    |
+| One `@typedef` per conceptual type, in the file that owns it.                      | Avoids duplication and drift.                             |
+| Cross-file references use `import(...)` paths, not bare names.                     | Keeps tooling-resolvable without a tsconfig.              |
+| Optional properties are written `[propName]`.                                      | Standard JSDoc convention.                                |
+| `@returns` is always present on non-`void` public functions.                       | Makes the contract explicit.                              |
+| `@type {ReadonlyArray<T>}` / `@type {Readonly<Record<K,V>>}` for frozen constants. | Signals immutability to callers.                          |
+| Add `// TODO(doc): …` when a type is genuinely ambiguous.                          | Prefer an explicit marker over a silent wrong annotation. |
 
 **Scope of comments.** Document the _contract_ (what is guaranteed to callers), not the
 implementation. One sentence describing the _why_ is better than a paragraph describing
@@ -52,7 +51,6 @@ Public functions are exported from a module's `index.js` or from a contract file
 ```js
 /**
  * One-line summary. Add a second sentence only when the summary is insufficient.
- * Reference the spec/impl section if applicable (SPEC §x / IMPL §x).
  *
  * @param {Type} name  Short description of the parameter.
  * @param {Type} [optionalName]  Description. Default is `value`.
@@ -73,7 +71,7 @@ export function publicFn(name, optionalName = value) { … }
 
 ```js
 /**
- * Tokenizes a Seebo template into a flat token stream (SPEC §2 / IMPL §2).
+ * Tokenizes a Seebo template into a flat token stream.
  * Recoverable lexical errors are routed to `options.onError`; the function itself never throws.
  *
  * @param {string} input  Raw template source.
@@ -151,7 +149,7 @@ export function createDiagnostic(code, opts = {}) { … }
 
 ```js
 /**
- * Creates the mutable parser context that holds token-stream position (IMPL §3.2).
+ * Creates the mutable parser context that holds token-stream position.
  * All parser helpers receive a context, never the raw token array.
  *
  * @param {import('../lexer/tokens.js').Token[]} tokens
@@ -172,7 +170,7 @@ ending in a terminal method (e.g. `toDescriptor()`).
 
 ```js
 /**
- * Immutable type descriptor builder (IMPL §4 clarifications §8).
+ * Immutable type descriptor builder.
  * Every mutating method returns a **new** builder; the original is unchanged.
  *
  * @typedef {Object} TypeBuilder
@@ -212,7 +210,7 @@ export function builder(type) { … }
 
 ```js
 /**
- * Canonical type names understood by the runtime (SPEC §1.3).
+ * Canonical type names understood by the runtime.
  *
  * @type {Readonly<Record<string, string>>}
  */
@@ -227,7 +225,7 @@ export const TypeName = Object.freeze({
 
 ```js
 /**
- * Language reserved words (SPEC §1.5).
+ * Language reserved words.
  * An application-defined identifier must not match any of these.
  *
  * @type {ReadonlyArray<string>}
@@ -256,13 +254,13 @@ export const VALUE_LIMITS = Object.freeze({ maxDepth: 100, maxNodes: 100_000 });
 
 ## 7. Runtime Value types
 
-A `Value` is the immutable typed record produced by the runtime (IMPL §4).
+A `Value` is the immutable typed record produced by the runtime.
 
 ### Core typedef (owns `src/runtime/values.js`)
 
 ```js
 /**
- * Immutable typed value flowing through evaluation (IMPL §4).
+ * Immutable typed value flowing through evaluation.
  * Always produced by a `make*` factory; never constructed manually.
  *
  * @typedef {Object} Value
@@ -292,7 +290,7 @@ export function makeInt(n, opts) { … }
 
 ```js
 /**
- * Descriptor that defines how a type is constructed and validated (IMPL §4 / clarifications §8).
+ * Descriptor that defines how a type is constructed and validated.
  * Produced by {@link TypeBuilder#toDescriptor}.
  *
  * @typedef {Object} TypeDescriptor
@@ -307,7 +305,7 @@ export function makeInt(n, opts) { … }
 
 ```js
 /**
- * Dual-semantics constructor (clarifications §8).
+ * Dual-semantics constructor.
  * - Called with no `value` argument → returns a {@link TypeBuilder}.
  * - Called with a `value` argument → returns a {@link Value}.
  *
@@ -339,7 +337,7 @@ Diagnostics are non-exceptional feedback objects that accumulate during a phase.
  */
 
 /**
- * Structured diagnostic (IMPL Appendix A).
+ * Structured diagnostic.
  * Canonical shape of non-exceptional, accumulate-able feedback from any phase.
  *
  * @typedef {Object} Diagnostic
@@ -357,7 +355,7 @@ Diagnostics are non-exceptional feedback objects that accumulate during a phase.
 
 ```js
 /**
- * Stable diagnostic codes used across all phases (IMPL Appendix A).
+ * Stable diagnostic codes used across all phases.
  * Values are string literals so they survive serialization.
  *
  * @type {Readonly<Record<string, string>>}
@@ -380,13 +378,13 @@ export const DiagnosticCode = Object.freeze({
 
 ## 9. State types
 
-State represents the serializable snapshot of one evaluation step (IMPL §6).
+State represents the serializable snapshot of one evaluation step.
 
 ### Core typedef (owns `src/run/run.js`)
 
 ```js
 /**
- * Serializable public state snapshot (SPEC §2.4 / IMPL §6.1).
+ * Serializable public state snapshot.
  * Produced by {@link start} and transformed — never mutated — by {@link run}.
  *
  * @typedef {Object} PublicState
@@ -423,7 +421,7 @@ State represents the serializable snapshot of one evaluation step (IMPL §6).
 
 ## 10. AST nodes
 
-AST nodes are produced by the parser and consumed by the evaluator (IMPL §3).
+AST nodes are produced by the parser and consumed by the evaluator.
 
 ### Discriminated union pattern
 
@@ -440,7 +438,7 @@ export const NodeKind = Object.freeze({
 });
 
 /**
- * Top-level document node (IMPL §3.1).
+ * Top-level document node.
  *
  * @typedef {Object} Document
  * @property {'Document'} kind
@@ -475,7 +473,7 @@ Config objects are passed by the host to configure engine behaviour.
 
 ```js
 /**
- * Engine configuration (SPEC §2.2).
+ * Engine configuration.
  * All fields are optional; missing fields receive runtime defaults via {@link normalizeConfig}.
  *
  * @typedef {Object} EngineConfig
@@ -552,7 +550,7 @@ A callback is a function value passed as a parameter that the engine calls at sp
 
 ## 13. Error classes
 
-Error classes derive from `SeeboError` (IMPL Appendix B).
+Error classes derive from `SeeboError`.
 
 ### Base class
 
@@ -611,7 +609,7 @@ export class EngineConfigError extends SeeboError {
 
 ```js
 /**
- * Parses a Seebo template into an AST Document (IMPL §3).
+ * Parses a Seebo template into an AST Document.
  *
  * @param {import('../lexer/tokens.js').Token[]} tokens  Pre-tokenized stream from {@link tokenize}.
  * @param {ParseOptions} [options]
@@ -625,7 +623,7 @@ export function parse(tokens, options = {}) { … }
 
 ```js
 /**
- * Result of a single evaluator step (IMPL §5.2).
+ * Result of a single evaluator step.
  * A tagged union with three variants; discriminate on `.kind`.
  *
  * @typedef {Ok | Susp | Err} EvalResult
@@ -652,7 +650,7 @@ export function parse(tokens, options = {}) { … }
 Use this exact format when a type is ambiguous or the API is not yet stable:
 
 ```js
-// TODO(doc): narrow this type once macro registration API is finalised (see IMPL §10)
+// TODO(doc): narrow this type once macro registration API is finalised
 /** @type {Array<unknown>} */
 ```
 

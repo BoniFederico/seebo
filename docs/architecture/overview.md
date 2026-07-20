@@ -1,29 +1,27 @@
 # Architecture overview
 
-This page describes the Seebo pipeline and the responsibility of each module. It is the
-developer-facing companion to the reference specs in [`spec.md`](../reference/spec.md)
-(language + API) and [`impl.md`](../reference/impl.md) (implementation). Section references
-like `SPEC §x.y` / `IMPL §x` point to those documents.
+This page describes the Seebo pipeline and the responsibility of each module — how a
+template goes from raw text to final output, and which part of the codebase owns each
+step.
 
 !!! success "Status: working engine core"
 
-    Implemented end-to-end: `tokenize`, `parse`, the runtime value system, the
-    **suspendable evaluator** (`Ok | Susp | Err` with lazy gating and requirement `Need`s),
-    the pure `run` state machine, the **async driver** (`drive`/`stebo`) with the four
-    provider outcomes, `stopOn`, policy and limits, and the static passes **`validate`**
-    (accumulating diagnostics) and **`analyze`** (requirement graph, execution plan,
-    metrics), and the macro passes **`expand`** (aggregators `ABSORB`/`MERGE`, pre-pass)
-    and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`, post-pass). The full expression
-    grammar evaluates (literals, refs, producers, methods, object/array literals, operators
-    incl. temporal arithmetic, ternary, desugared `match`), and the SPEC §2.7 end-to-end
-    example passes. The full conformance suite runs with **no skipped tests**. Extension
-    points are wired: custom types (`defineType` — construction/validation/stringify),
-    custom functions/transformers, custom finalize macros (`defineMacro` `apply`) and
-    libraries; `builtins.{types,functions,macros}` expose the standard vocabulary for
-    `...builtins.all`. Still pending: a shipped built-in `fake.*` library (the
+    The engine is implemented end-to-end: `tokenize`, `parse`, the runtime value system,
+    the **suspendable evaluator** (`Ok | Susp | Err` with lazy gating and requirement
+    `Need`s), the pure `run` state machine, the **async driver** (`drive`/`stebo`) with
+    the four provider outcomes, `stopOn`, policy and limits, the static passes
+    **`validate`** (accumulating diagnostics) and **`analyze`** (requirement graph,
+    execution plan, metrics), and the macro passes **`expand`** (aggregators
+    `ABSORB`/`MERGE`, pre-pass) and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`,
+    post-pass). The full expression grammar evaluates (literals, refs, producers,
+    methods, object/array literals, operators incl. temporal arithmetic, ternary,
+    desugared `match`). The full conformance suite runs with **no skipped tests**.
+    Extension points are wired: custom types, functions/transformers, finalize macros
+    and libraries; `builtins.{types,functions,macros}` expose the standard vocabulary
+    for `...builtins.all`. Still pending: a shipped built-in `fake.*` library (the
     `defineLibrary` mechanism exists).
 
-## Design principles (SPEC §1.1)
+## Design principles
 
 1. **Everything is typed** — values are `{ type, value, format, constraints }`;
    stringification happens only at slot emission.
@@ -32,9 +30,9 @@ like `SPEC §x.y` / `IMPL §x` point to those documents.
 4. **Suspendable evaluation** — a node yields `Value | Need | Error`; a `Need` suspends
    instead of failing.
 
-A guiding architectural rule (IMPL §1): **the core is pure and synchronous; the only
-asynchronous component is the driver.** This keeps the state serializable, the logic
-testable, and lets the exact same code run on client and server.
+A guiding architectural rule: **the core is pure and synchronous; the only asynchronous
+component is the driver.** This keeps the state serializable, the logic testable, and
+lets the exact same code run on client and server.
 
 ## The pipeline
 
@@ -46,16 +44,16 @@ flowchart LR
   AST --> RUN["RUN (state machine)<br/>Value · Need · Error"]
 ```
 
-- **LEX / PARSE / VALIDATE / ANALYZE / RUN** are pure and synchronous (IMPL §1).
+- **LEX / PARSE / VALIDATE / ANALYZE / RUN** are pure and synchronous.
 - **EXPAND** (aggregators) and **FINALIZE** (layout) frame the execution.
 - **The async DRIVER** sits around `run`, querying capabilities to satisfy `Need`s.
 
 `VALIDATE` and `ANALYZE` are **independent static passes** over the same AST, not a chain:
 the host calls `engine.validate(template)` to collect diagnostics and `engine.analyze(template)`
 to obtain the `Analysis`. Neither is required by `run` (which re-parses and evaluates
-directly); both are wired in `createEngine` and share the static symbol table (IMPL §8).
+directly); both are wired in `createEngine` and share the static symbol table.
 
-### `validate` (IMPL §8)
+### `validate`
 
 Parses, builds the symbol table, and walks the AST reporting `UNDECLARED_NAME`,
 `UNKNOWN_FUNCTION` (unknown producer / un-enabled library), `UNKNOWN_CAPABILITY`,
@@ -76,7 +74,7 @@ expression's inferred type bottom-up in a single pass; custom producers/transfor
 registry are consulted so application extensions are not mis-reported. `validate` never
 throws: a malformed template surfaces as a single `SYNTAX_ERROR` diagnostic.
 
-### `analyze` (IMPL §9)
+### `analyze`
 
 Consumes the AST + symbol table and computes the `Analysis`: `requirements` (enriched with
 derived `phase` and `options`), the `requirementGraph` (edge `A → B` when `B` is declared
@@ -86,10 +84,10 @@ phase, where phase = longest dependency path), `capabilitiesUsed`, `staticValues
 (false when `now()`/`fake.*` appear — v1 is conservative), `streamability`, `potentialCycles`,
 `maxPhases` (capped by `limits.maxPhases`) and `worstCaseRequirements`.
 
-### Macro passes: `expand` (IMPL §10.1) and `finalize` (IMPL §10.2)
+### Macro passes: `expand` and `finalize`
 
 Macros live in two phases that **frame** execution, in the canonical order _compose →
-resolve → clean up_ (SPEC §2.5). `stebo` chains them:
+resolve → clean up_. `stebo` chains them:
 
 ```mermaid
 flowchart LR
@@ -99,22 +97,22 @@ flowchart LR
   FIN --> OUT([final output])
 ```
 
-- **`expand({ template, templates }) → composed`** (async signature, IMPL §10.1). Parses
-  the source, replaces every aggregator slot by the (recursively expanded) referenced
-  template, and copies everything else verbatim — so imported requirements later reach the
-  symbol table. `ABSORB('name')` inlines one template; `MERGE('glob', sep?)` concatenates,
-  in stable sorted order, the templates whose name matches an **anchored glob** (`*`/`?`
+- **`expand({ template, templates }) → composed`** (async signature). Parses the source,
+  replaces every aggregator slot by the (recursively expanded) referenced template, and
+  copies everything else verbatim — so imported requirements later reach the symbol
+  table. `ABSORB('name')` inlines one template; `MERGE('glob', sep?)` concatenates, in
+  stable sorted order, the templates whose name matches an **anchored glob** (`*`/`?`
   only — linear-time, no ReDoS). Recursion is bounded by `limits.maxDepth`
   (`DEPTH_EXCEEDED`) and an inclusion chain (`INCLUSION_CYCLE`); both errors are turned by
-  `stebo` into a `failed` state (B.5). A missing template inlines as empty.
+  `stebo` into a `failed` state. A missing template inlines as empty.
 - **Layout markers in the emitted text.** A layout macro is a **positional marker**. During
   evaluation, `run` emits a layout slot back as its canonical `@{NAME(args)}` source; a
-  formula may _also_ produce that literal text (SPEC §2.7's `'@{REMOVE_LINE}'`). Both forms
-  are identical to the next pass.
-- **`finalize(text) → text`** (sync, pure, IMPL §10.2). Scans the resolved text for the
-  recognized layout markers and applies them **left-to-right, recomputing offsets** after
-  each edit: `REMOVE_LINE` drops the marker's line, `REMOVE_LEFT(n)`/`REMOVE_RIGHT(n)` drop
-  the marker plus _n_ neighbouring chars, `COLLAPSE` removes itself and collapses runs of
+  formula may _also_ produce that literal text (e.g. the string `'@{REMOVE_LINE}'`). Both
+  forms are identical to the next pass.
+- **`finalize(text) → text`** (sync, pure). Scans the resolved text for the recognized
+  layout markers and applies them **left-to-right, recomputing offsets** after each edit:
+  `REMOVE_LINE` drops the marker's line, `REMOVE_LEFT(n)`/`REMOVE_RIGHT(n)` drop the
+  marker plus _n_ neighbouring chars, `COLLAPSE` removes itself and collapses runs of
   blank lines. Any unrecognized `@{…}` is left untouched, so arbitrary user data is never
   misinterpreted. No `eval`; deterministic.
 
@@ -124,7 +122,7 @@ flowchart LR
     aggregators first), so requirements imported via `ABSORB`/`MERGE` are not yet seen by
     the static passes — a known limitation to lift once `expand` feeds the symbol table.
 
-### Extensibility: the registry (SPEC §2.6)
+### Extensibility: the registry
 
 `createEngine` builds one immutable
 [`Registry`](https://github.com/BoniFederico/seebo/blob/master/src/runtime/registry.js)
@@ -139,8 +137,8 @@ the normalized config. It is the single read-only source of custom vocabulary, c
 - the **driver** — the registered capability set, plus the trust policy (`policy.trustLevel`
   vs `capabilityRules[cap].allowFrom`) checked **before** a provider runs.
 
-**Name governance** (SPEC §1.5) happens while building the registry: every introduced name is
-checked against the reserved words (`RESERVED_NAME`) and for uniqueness in its namespace
+**Name governance** happens while building the registry: every introduced name is checked
+against the reserved words (`RESERVED_NAME`) and for uniqueness in its namespace
 (`NAME_CONFLICT`) — producers/types/libraries/capabilities share one namespace, macros another,
 transformers are keyed per receiver type. A violation throws `EngineConfigError` at
 `createEngine`. The `define*` factories return frozen descriptors; see the
@@ -151,23 +149,23 @@ transformers are keyed per receiver type. A violation throws `EngineConfigError`
 Each module is organized as **named contract file(s)** (the source of truth for shapes
 and signatures) plus an `index.js` **barrel** that re-exports them.
 
-| Module          | Contract file(s)                                     | Responsibility                                                                                                                   | Spec             |
-| --------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `src/lexer/`    | `tokens.js` + `lexer.js`                             | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant)                                                     | IMPL §2          |
-| `src/ast/`      | `nodes.js`                                           | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)                                                                 | IMPL §3.1        |
-| `src/parser/`   | `parser.js`                                          | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`                                                               | IMPL §3          |
-| `src/runtime/`  | `values.js`, `registry.js`                           | `Value` model + the extension `Registry` (custom vocab, name governance)                                                         | IMPL §4, §3      |
-| `src/eval/`     | `evaluator.js`                                       | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`                                                               | IMPL §5          |
-| `src/run/`      | `run.js`                                             | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`                                                                 | IMPL §6          |
-| `src/validate/` | `validate.js`                                        | static diagnostics (undeclared names, arity, types, capabilities)                                                                | IMPL §8          |
-| `src/analyze/`  | `analyze.js`                                         | `Analysis`: requirement graph, plan, metrics, `streamability`                                                                    | IMPL §9          |
-| `src/macros/`   | `expand.js`, `finalize.js`                           | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass)                                                                    | IMPL §10         |
-| `src/driver/`   | `async_driver.js`                                    | the only async layer; `ProviderOutcome`, `drive`, `stebo`                                                                        | IMPL §7          |
-| `src/actions/`  | `contracts.js`, `plan.js`, `policy.js`, `execute.js` | action **contracts + pure planning + policy** (core-safe) and the **execution layer** (`seebo/actions`, the only effectful part) | SPEC §2.8        |
-| `src/util/`     | `errors.js`, `versions.js`                           | `Diagnostic`/`DiagnosticCode`, error classes, contract versions                                                                  | IMPL App. A, §15 |
-| `src/index.js`  | —                                                    | public API: `createEngine`, `builtins`, `define*`, config defaults                                                               | SPEC §2.2/§2.6   |
+| Module          | Contract file(s)                                     | Responsibility                                                                                                                   |
+| --------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lexer/`    | `tokens.js` + `lexer.js`                             | `Token`/`TokenType`/`Position`; `tokenize(input, options?)` (error-tolerant)                                                     |
+| `src/ast/`      | `nodes.js`                                           | `Document` and node/`Expr` shapes (incl. `ObjectLit`/`ArrayLit`)                                                                 |
+| `src/parser/`   | `parser.js`                                          | recursive descent + Pratt; `parse(tokens, options?)`; `PRECEDENCE`                                                               |
+| `src/runtime/`  | `values.js`, `registry.js`                           | `Value` model + the extension `Registry` (custom vocab, name governance)                                                         |
+| `src/eval/`     | `evaluator.js`                                       | suspendable evaluator `Ok \| Susp \| Err`; `RequirementDescriptor`                                                               |
+| `src/run/`      | `run.js`                                             | pure state machine: `PublicState`, `RuntimeState`, `start`/`run`                                                                 |
+| `src/validate/` | `validate.js`                                        | static diagnostics (undeclared names, arity, types, capabilities)                                                                |
+| `src/analyze/`  | `analyze.js`                                         | `Analysis`: requirement graph, plan, metrics, `streamability`                                                                    |
+| `src/macros/`   | `expand.js`, `finalize.js`                           | EXPAND aggregators (pre-pass) and FINALIZE layout (post-pass)                                                                    |
+| `src/driver/`   | `async_driver.js`                                    | the only async layer; `ProviderOutcome`, `drive`, `stebo`                                                                        |
+| `src/actions/`  | `contracts.js`, `plan.js`, `policy.js`, `execute.js` | action **contracts + pure planning + policy** (core-safe) and the **execution layer** (`seebo/actions`, the only effectful part) |
+| `src/util/`     | `errors.js`, `versions.js`                           | `Diagnostic`/`DiagnosticCode`, error classes, contract versions                                                                  |
+| `src/index.js`  | —                                                    | public API: `createEngine`, `builtins`, `define*`, config defaults                                                               |
 
-### Actions (SPEC §2.8): preparation vs. execution
+### Actions: preparation vs. execution
 
 The action subsystem is split so the purity rule holds physically, not just by convention:
 

@@ -1,8 +1,11 @@
 # Usage & Extensibility
 
-Practical examples for using Seebo and extending it (SPEC §2.6). For the internal design
-see the [architecture overview](../architecture/overview.md); the normative behaviour is in
-[`spec.md`](../reference/spec.md) and [`impl.md`](../reference/impl.md).
+This guide takes you from a working engine to a fully customized one. It builds up in
+order: first the **declarations** a template uses to name its data, then each
+**extension point** (functions, libraries, capabilities, macros, types), and finally
+**realistic end-to-end patterns** — interactive multi-turn forms, template composition
+and deterministic rendering. If you have not run a template yet, start with
+[First run](../getting-started/first-run.md).
 
 ## Creating an engine
 
@@ -13,26 +16,36 @@ const engine = createEngine({
   ...builtins.all,
   capabilities: {
     user: () => undefined, // interactive: its Needs are returned to the caller
-    crm: (req) => ({ ordine: { id: 42 } })[req.id], // a "data" capability
+    crm: (req) => ({ order: { id: 42 } })[req.id], // a "data" capability
   },
   locale: 'it-IT',
 });
 
 const res = await engine.stebo({
-  template: "Order ${ crm({ id:'ordine', type:object() }).id }",
+  template: "Order ${ crm({ id:'order', type:object() }).id }",
 });
 console.log(res.output); // "Order 42"
 ```
 
 `createEngine` binds the vocabulary once and **fails fast** on an invalid name (see
-[Name governance](#name-governance)). The returned engine exposes the SPEC §2.3–§2.5 methods
+[Name governance](#name-governance)). The returned engine exposes the full method surface
 (`tokenize`, `parse`, `validate`, `analyze`, `start`, `run`, `expand`, `finalize`, `drive`,
 `stebo`).
 
-## Declarations: `need`, `bind`, `prepare` (SPEC §1.6/§1.7)
+## Declarations: `need`, `bind`, `prepare`
 
 A template declares the data, values and effects it depends on, and references them **plain** by
 name afterwards (`${ name }`). A reference to an undeclared name is an `UNDECLARED_NAME` error.
+
+Three declaration forms cover every case:
+
+| Form                   | Declares                          | Use it when                                                                  |
+| ---------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| `need({...})` inline   | Missing external data (**eager**) | You want the value requested and rendered right where it appears.            |
+| `bind(name, type)`     | A pure value with a default       | You need a constant/derived value (e.g. a VAT rate) referenced by name.      |
+| `prepare(need/action)` | A need or action (**lazy**)       | You will reference the id elsewhere — possibly in a branch that may not run. |
+
+In detail:
 
 - `need({ id, capability, type?, ... })` — missing data resolved by a capability. The **capability
   sugar** `cap('id')` is the short form: `input('amount')` ≡ `need({ id:'amount', capability:'input' })`,
@@ -69,10 +82,21 @@ its value forwarded to the provider (`need.args`), with `analyze` ordering the t
   "${ prepare(need({ id:'city', capability:'geo', args:{ region: region } })) }${ city }";
 ```
 
-## Extensibility (SPEC §2.6)
+## Extensibility
 
 All extensions are created with a `define*` factory that returns a **frozen descriptor**, then
 passed to `createEngine`. Names are validated/reserved when the engine is built.
+
+Pick the extension point from what you want to add to the template language:
+
+| I want to…                                                      | Use                | Invoked in a template as                         |
+| --------------------------------------------------------------- | ------------------ | ------------------------------------------------ |
+| Add a computation (`slugify`, `vatOf`, …)                       | `defineFunction`   | `${ fn(...) }` or `${ value.fn(...) }`           |
+| Group several functions under a namespace                       | `defineLibrary`    | `${ ns.fn(...) }`                                |
+| Feed **external data** into templates (DB, API, user input)     | `defineCapability` | `${ cap('id') }` / `need`                        |
+| Post-process the rendered text (banners, cleanup)               | `defineMacro`      | `@{ NAME(...) }`                                 |
+| Add a **value type** with its own validation and formatting     | `defineType`       | `${ money(12.5) }`                               |
+| Perform an **external effect** (create a ticket, send an email) | `defineAction`     | `${ action({...}) }` — see [Actions](actions.md) |
 
 > **Security model.** Extension implementations are **trusted host code** registered at engine
 > construction. Their `eval`/`resolve` functions receive **plain JS values** (never internal
@@ -131,7 +155,7 @@ parsing; calling an unregistered `ns.fn()` is an `UNKNOWN_FUNCTION` diagnostic.
 
 A capability resolves a `need`. Place the `defineCapability(...)` descriptor (or a bare resolver
 function) under the matching key of `capabilities` (the driver's wiring point). The capability
-name automatically becomes a producer (the `need` sugar of SPEC §1.6).
+name automatically becomes a producer (the `need` sugar).
 
 A capability may declare its own **contract** (`type`/`constraints` via a type builder, plus
 `label`/`description`). A `need('cap')` then inherits it, so the template need not repeat the type;
@@ -320,7 +344,7 @@ const res = await engine.stebo({
 
 ### Conditional layout with `@{REMOVE_LINE}`
 
-Layout macros let a formula remove its own line when a value is empty (SPEC §2.7):
+Layout macros let a formula remove its own line when a value is empty:
 
 ```js
 const res = await engine.stebo({

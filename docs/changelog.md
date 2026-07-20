@@ -8,8 +8,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
-- **BREAKING: `bind` is now value-only; need/action are declared lazily with `prepare(...)`
-  (SPEC §1.7).** `bind(name, type)` names a **pure value** binding; `bind('x', need(...))` and
+- **BREAKING: `bind` is now value-only; need/action are declared lazily with `prepare(...)`.** `bind(name, type)` names a **pure value** binding; `bind('x', need(...))` and
   `bind('x', action(...))` are **removed**. A need/action is declared for reuse with
   `prepare(need(...))` / `prepare(action(...))`, carrying its own `id`. Both are read **plain**
   (`${ id }`) and are **lazy** — the need is requested, and the action activated, only where its id
@@ -27,14 +26,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
-- **Binding redesign (SPEC §1.6/§1.7/§2.4).** Unified the declarative surface under
+- **Binding redesign.** Unified the declarative surface under
   `bind(name, descriptor)` and `need({...})`. A name is declared once and read **plain** by name
   afterwards (`${ name }`); a reference to an undeclared name is `UNDECLARED_NAME`.
-- **Capability contracts (§1.6).** `defineCapability({ type, label, description, resolve })` declares
+- **Capability contracts.** `defineCapability({ type, label, description, resolve })` declares
   a contract that a need inherits, so the template need not repeat the type; the template
   still wins on any field it overrides. A capability map entry may be a resolver function (as before)
   or a `defineCapability` descriptor.
-- **Dynamic capability `args` (§2.4).** A capability `args` value may reference another binding; the
+- **Dynamic capability `args`.** A capability `args` value may reference another binding; the
   dependency becomes a static edge in the requirement graph (ordered into phases by `analyze`) while
   the value stays runtime. An `args` dependency cycle is reported as `CYCLE_DETECTED`.
 
@@ -49,7 +48,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
-- **Actions (`action(...)`, SPEC §2.8).** A declarative **effect declaration** prepared by the
+- **Actions (`action(...)`).** A declarative **effect declaration** prepared by the
   pure core and executed only through the new `seebo/actions` subpath. `${ action({...}) }` is
   collected into an **action plan** (`run(state).actions`, `analyze(template).actions`) when its
   subtree is reachable; an unresolved input requirement marks the action `blocked` while its `Need`
@@ -76,7 +75,7 @@ All notable changes to this project are documented here. The format is based on
 
 - Fully **additive and backward-compatible**: existing templates and APIs are unchanged. `action`
   is now a reserved word; results gain an additive `actions` field. New diagnostic `code`s are
-  non-breaking per IMPL §14.
+  non-breaking under the compatibility policy.
 
 ## [0.1.0] — 2026-06-26
 
@@ -87,7 +86,7 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
 
 - **Pipeline.** Full lexer → parser → `validate`/`analyze` → `run` flow, framed by the
   `expand` (aggregator macros) pre-pass and `finalize` (layout macros) post-pass; async
-  confined to `drive`/`stebo` (SPEC Part 2, IMPL §1).
+  confined to `drive`/`stebo`.
 - **Type system & evaluation.** Immutable typed values (`int`, `float`, `bool`, `string`,
   `datetime`, `duration`, `object`, `array`), operators incl. temporal arithmetic, transformer
   methods, object/array access, lazy `and`/`or`/`??`/ternary and desugared `match`; suspendable
@@ -102,7 +101,7 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
   capabilities (`defineCapability`), and finalize macros (`defineMacro` with `apply`).
   `builtins.{types,functions,macros}` expose the standard vocabulary for `...builtins.all`.
 - **Persistence & versioning.** Serializable `PublicState`; `run` migrates older states and
-  rejects newer ones with `UNSUPPORTED_STATE_VERSION` (IMPL §14).
+  rejects newer ones with `UNSUPPORTED_STATE_VERSION`.
 - **Security & limits.** Configurable limits with diagnostics (`INPUT`/`TOKEN`/`NODE`/
   `NESTING`/`STEP`/`DEPTH`/`OUTPUT_LIMIT_EXCEEDED`, `maxOutputBytes` enforced), runtime
   `CONSTRAINT_VIOLATION`, prototype-pollution protection, trusted/untrusted capability policy
@@ -115,7 +114,7 @@ Plain JavaScript + JSDoc, no runtime dependencies, Node ≥ 20.
 
 ### Notes
 
-- Diagnostic `code`s are a stable public contract (IMPL Appendix A): never renamed; adding
+- Diagnostic `code`s are a stable public contract: never renamed; adding
   new ones is non-breaking.
 - Intentionally out of scope for v1: a shipped `fake.*` library, `steboStream` streaming, and
   the `lazyParse`/`stream`/`objectPool` optimizations (accepted but inert).

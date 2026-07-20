@@ -1,6 +1,6 @@
 # Actions
 
-`action(...)` is Seebo's declarative construct for **external effects** (SPEC §2.8). It is the
+`action(...)` is Seebo's declarative construct for **external effects**. It is the
 fourth peer of the data-flow vocabulary:
 
 | Construct     | Role                                                   |
@@ -18,6 +18,61 @@ only ever _prepare_ an **action plan**. Execution happens solely through the exp
 import { createEngine } from 'seebo';
 import { executeActionPlan } from 'seebo/actions';
 ```
+
+---
+
+## Your first action, end to end
+
+Five steps take an effect from declaration to execution. Each is small on purpose — the
+point is to see where the pure/effectful boundary sits.
+
+**1. Register a handler.** A handler implements an action _type_ — here a fake notifier:
+
+```js
+const engine = createEngine();
+
+engine.defineAction('notify.send', {
+  async execute(input) {
+    console.log(`(sending) ${input.message}`);
+    return { deliveredTo: input.channel };
+  },
+});
+```
+
+**2. Declare the action in a template.** An action slot emits nothing into the output —
+an effect is not text:
+
+```js
+const template =
+  "Deploy done.${ action({ id:'ping', type:'notify.send', input:{ channel:'ops', message:'Deployed!' } }) }";
+```
+
+**3. Run the template.** The pure core renders the text and _prepares_ the plan — nothing
+is sent yet:
+
+```js
+const state = engine.run(engine.start(template));
+state.output; // 'Deploy done.'
+state.actions.map((a) => [a.id, a.status]); // [['ping', 'ready']]
+```
+
+**4. (Optional) dry-run.** Preview what would happen without side effects:
+
+```js
+import { dryRunActionPlan } from 'seebo/actions';
+await dryRunActionPlan(state.actions, { engine }); // never calls execute()
+```
+
+**5. Execute the plan.** Only now, and only because the host asked, the effect happens:
+
+```js
+const result = await executeActionPlan(state.actions, { engine });
+result.status; // 'completed'
+result.receipts[0].output; // { deliveredTo: 'ops' }
+```
+
+The rest of this page fills in what each step can do: descriptor fields, the lifecycle,
+confirmation, permissions, retry, audit and compensation.
 
 ---
 

@@ -33,12 +33,21 @@ import { executeActionPlan } from 'seebo/actions';
 
 ## Verify the installation
 
+Save this as `hello.mjs` and run `node hello.mjs`:
+
 ```js
 import { createEngine } from 'seebo';
 
 const res = await createEngine().stebo({ template: '${ 1 + 2 * 3 }' });
 console.log(res.status, res.output); // completed 7
 ```
+
+!!! warning "Seebo is native ESM"
+
+    Use `import` — in a `.mjs` file or in a project whose `package.json` has
+    `"type": "module"`. On Node 20 and early 22.x, `require('seebo')` fails with
+    `ERR_REQUIRE_ESM` (recent Node versions can `require()` ESM, but `import` is the
+    supported path).
 
 ## Install from a clone (development)
 

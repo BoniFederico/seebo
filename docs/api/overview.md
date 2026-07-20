@@ -1,9 +1,7 @@
 # API Reference
 
 The public API of Seebo, summarized from the JSDoc contracts. Everything below is exported
-from the package entry point (`import { … } from 'seebo'`). Section references like
-`SPEC §x` / `IMPL §x` point to [`spec.md`](../reference/spec.md) and
-[`impl.md`](../reference/impl.md).
+from the package entry point (`import { … } from 'seebo'`).
 
 The engine is **plain JavaScript + JSDoc**. The shapes below are documentation of the JSDoc
 typedefs, not TypeScript declarations.
@@ -12,7 +10,7 @@ typedefs, not TypeScript declarations.
 
 ## `createEngine(config?) → Engine`
 
-Builds a configured engine (SPEC §2.2). Binds the vocabulary, policy and environment once and
+Builds a configured engine. Binds the vocabulary, policy and environment once and
 returns an object whose methods are pre-bound to the resolved config. **Fails fast** with an
 `EngineConfigError` on an invalid/duplicate name (name governance runs first).
 
@@ -32,14 +30,14 @@ Static & pure (synchronous; depend only on `template` + config):
 | `validate(template)` | `Diagnostic[]`   | Static diagnostics (empty = valid); **never throws**.                     |
 | `analyze(template)`  | `Analysis`       | Compiler-style plan: requirements, graph, metrics.                        |
 
-Execution — pure & synchronous (IMPL §6):
+Execution — pure & synchronous:
 
 | Method                            | Returns       | Purpose                                                                   |
 | --------------------------------- | ------------- | ------------------------------------------------------------------------- |
 | `start(template, initialValues?)` | `PublicState` | Initial state (`status: 'running'`). Raw values are wrapped via `fromJs`. |
 | `run(state)`                      | `PublicState` | One state-machine step; collects open `Need`s into `pending`.             |
 
-Orchestration — async (the only async layer; IMPL §7):
+Orchestration — async (the only async layer):
 
 | Method                             | Returns                | Purpose                                                 |
 | ---------------------------------- | ---------------------- | ------------------------------------------------------- |
@@ -70,7 +68,7 @@ builtins.all; // { types, functions, macros }
 
 ---
 
-## Extension factories (`define*`, SPEC §2.6)
+## Extension factories (`define*`)
 
 Each returns a **frozen descriptor** to place in the matching `createEngine` config array.
 Implementations are **trusted host code**: they receive plain JS values and their results are
@@ -89,7 +87,7 @@ See the [usage guide](../guide/usage.md) for worked examples of each.
 
 ---
 
-## Actions (`seebo/actions`, SPEC §2.8)
+## Actions (`seebo/actions`)
 
 `action(...)` is a declarative **effect declaration** — the engine prepares an action plan
 (`run(state).actions` / `analyze(template).actions`) but **never** executes it. Execution is
@@ -122,21 +120,21 @@ compensation.
 
 ### `EngineConfig` (all fields optional)
 
-| Field           | Type                                    | Default                 | Notes                                                                                                                                  |
-| --------------- | --------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `types`         | `Array<string \| TypeExtensionDef>`     | `[]`                    | Custom types (+ builtin names, ignored).                                                                                               |
-| `functions`     | `Array<string \| FunctionExtensionDef>` | `[]`                    | Producers/transformers.                                                                                                                |
-| `macros`        | `Array<string \| MacroExtensionDef>`    | `[]`                    | Aggregator/layout macros.                                                                                                              |
-| `libraries`     | `Array<string \| LibraryExtensionDef>`  | `[]`                    | A string only **enables** a namespace.                                                                                                 |
-| `capabilities`  | `Record<string, fn \| CapabilityDef>`   | `{}`                    | The whole capability set; an entry may be a resolver fn or a `defineCapability` descriptor (with a contract). No builtins (SPEC §1.6). |
-| `actions`       | `ActionExtensionDef[]`                  | `[]`                    | Action handlers (`defineAction`); executed only via `seebo/actions`.                                                                   |
-| `policy`        | `EnginePolicy`                          | see below               | Allow-lists, trust, audit, redact, retry, action controls.                                                                             |
-| `locale`        | `string`                                | `'en-US'`               | Formatting locale (BCP-47).                                                                                                            |
-| `clock`         | `() => Date`                            | `() => new Date()`      | Injected clock for `now()` (determinism).                                                                                              |
-| `seed`          | `number`                                | —                       | Reserved (unused in v1).                                                                                                               |
-| `limits`        | `Record<string, number>`                | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                                                                                       |
-| `delimiters`    | `Record<string, string>`                | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`.                                                                        |
-| `optimizations` | `Record<string, boolean>`               | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                                                                                               |
+| Field           | Type                                    | Default                 | Notes                                                                                                                      |
+| --------------- | --------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `types`         | `Array<string \| TypeExtensionDef>`     | `[]`                    | Custom types (+ builtin names, ignored).                                                                                   |
+| `functions`     | `Array<string \| FunctionExtensionDef>` | `[]`                    | Producers/transformers.                                                                                                    |
+| `macros`        | `Array<string \| MacroExtensionDef>`    | `[]`                    | Aggregator/layout macros.                                                                                                  |
+| `libraries`     | `Array<string \| LibraryExtensionDef>`  | `[]`                    | A string only **enables** a namespace.                                                                                     |
+| `capabilities`  | `Record<string, fn \| CapabilityDef>`   | `{}`                    | The whole capability set; an entry may be a resolver fn or a `defineCapability` descriptor (with a contract). No builtins. |
+| `actions`       | `ActionExtensionDef[]`                  | `[]`                    | Action handlers (`defineAction`); executed only via `seebo/actions`.                                                       |
+| `policy`        | `EnginePolicy`                          | see below               | Allow-lists, trust, audit, redact, retry, action controls.                                                                 |
+| `locale`        | `string`                                | `'en-US'`               | Formatting locale (BCP-47).                                                                                                |
+| `clock`         | `() => Date`                            | `() => new Date()`      | Injected clock for `now()` (determinism).                                                                                  |
+| `seed`          | `number`                                | —                       | Reserved (unused in v1).                                                                                                   |
+| `limits`        | `Record<string, number>`                | `DEFAULT_LIMITS`        | Per-phase resource bounds (see README/SECURITY).                                                                           |
+| `delimiters`    | `Record<string, string>`                | `DEFAULT_DELIMITERS`    | `{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }`.                                                            |
+| `optimizations` | `Record<string, boolean>`               | `DEFAULT_OPTIMIZATIONS` | Only `astCache` is implemented (opt-in).                                                                                   |
 
 ### `EnginePolicy`
 
@@ -162,7 +160,7 @@ the capability out of the audit hook.
 
 ## Core types
 
-### `PublicState` (SPEC §2.4 / IMPL §6.1) — the only serializable snapshot
+### `PublicState` — the only serializable snapshot
 
 ```
 {
@@ -179,11 +177,11 @@ the capability out of the audit hook.
 
 `Status` = `{ RUNNING:'running', WAITING:'waiting', COMPLETED:'completed', FAILED:'failed' }`.
 
-### `RequirementDescriptor` (SPEC §1.6)
+### `RequirementDescriptor`
 
 `{ id, type, capability, label?, description?, optional?, priority?, group?, args? }`, plus the
 analyze-derived `phase?` and `options?` (extracted from `type.constraints.values`). `args` is data
-forwarded opaquely to the capability provider; its value may reference another binding (SPEC §2.4),
+forwarded opaquely to the capability provider; its value may reference another binding,
 in which case the dependency is resolved first (the analyze graph orders them into phases).
 
 Declared inline with `need({ id, capability })` (or the sugar `cap('id')`), or **lazily** for reuse
@@ -191,7 +189,7 @@ with `prepare(need(...))`. A capability may declare a contract (`type`/`constrai
 the sugar `cap('id')` inherits (template overrides win). Note: `bind(name, type)` names a **pure
 value**, not a need.
 
-### `Diagnostic` (IMPL Appendix A)
+### `Diagnostic`
 
 ```
 { code: string, severity: 'error'|'warning'|'info',
@@ -209,7 +207,7 @@ codes (never renamed; adding new ones is non-breaking). Notable codes: `SYNTAX_E
 the parse/run limit codes (`INPUT/TOKEN/NODE/NESTING/STEP_LIMIT_EXCEEDED`), the driver codes
 (`CAPABILITY_FORBIDDEN`/`_ERROR`/`_INVALID_VALUE`), and `UNSUPPORTED_STATE_VERSION`.
 
-### `Analysis` (IMPL §9) — returned by `analyze`
+### `Analysis` — returned by `analyze`
 
 ```
 { analysisVersion: number, ast: Document,
@@ -222,12 +220,12 @@ the parse/run limit codes (`INPUT/TOKEN/NODE/NESTING/STEP_LIMIT_EXCEEDED`), the 
   potentialCycles, maxPhases: number, worstCaseRequirements: number }
 ```
 
-### `Value` (IMPL §4) — immutable typed record
+### `Value` — immutable typed record
 
 `{ type, value, format, constraints }`, frozen; always produced by the engine. `TypeName` is
 the enum of base types; `PRECISION_ORDER` and `DURATION_UNITS` are the related constants.
 
-### `ProviderOutcome` (IMPL §7.1)
+### `ProviderOutcome`
 
 `{ RESOLVED:'Resolved', UNRESOLVED:'Unresolved', PROVIDER_ERROR:'ProviderError', INVALID_VALUE:'InvalidValue' }`
 — the driver's classification of a capability result.
@@ -245,7 +243,7 @@ the enum of base types; `PRECISION_ORDER` and `DURATION_UNITS` are the related c
 | `AST_VERSION`                       | Version of the AST shape (`1`).                                      |
 | `STATE_VERSION`                     | Version of `PublicState` (`1`).                                      |
 | `ANALYSIS_VERSION`                  | Version of `Analysis` (`1`).                                         |
-| `migrations`                        | Registered state migrators (empty in v1; IMPL §15).                  |
+| `migrations`                        | Registered state migrators (empty in v1).                            |
 | `TokenType`, `NodeKind`, `ExprKind` | Lexer/AST discriminators.                                            |
 | `ResultKind`                        | Evaluator outcome tags (`Ok`/`Susp`/`Err`).                          |
 | `MacroFamily`, `BUILTIN_MACROS`     | Macro family enum and the builtin macro names.                       |
@@ -255,7 +253,8 @@ the enum of base types; `PRECISION_ORDER` and `DURATION_UNITS` are the related c
 ## Error classes
 
 - `SeeboError extends Error` — base for engine exceptions; carries `code?` and `position?`.
-  Use `instanceof SeeboError` to distinguish engine failures. Thrown only where the SPEC
-  mandates (e.g. `parse` on malformed syntax); everywhere else failures are diagnostics.
+  Use `instanceof SeeboError` to distinguish engine failures. Thrown only where the
+  contract mandates it (e.g. `parse` on malformed syntax); everywhere else failures are
+  diagnostics.
 - `EngineConfigError extends SeeboError` — invalid configuration at `createEngine` (e.g.
   `RESERVED_NAME`, `NAME_CONFLICT`); carries `data?`.

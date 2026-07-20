@@ -26,6 +26,14 @@ const res = await engine.stebo({
 res.output; // 'Order 42 — 1234,50 €'
 ```
 
+!!! tip "New to Seebo? Three pages get you productive"
+
+    1. [Installation](getting-started/installation.md) — `npm install seebo`, Node ≥ 20.
+    2. [First run](getting-started/first-run.md) — a 5-minute tutorial: render, suspend,
+       resume.
+    3. [Usage & extensibility](guide/usage.md) — declarations, extension points and
+       realistic patterns.
+
 ## Why Seebo
 
 - **Everything is typed** — `int`, `float`, `bool`, `string`, `datetime`, `duration`,
@@ -69,7 +77,6 @@ Details in the [architecture overview](architecture/overview.md).
 | [Security](security/security.md)                      | Threat model, limits, prototype-pollution protection, policy.      |
 | [Deployment](deployment/deployment.md)                | CI, the npm release workflow and the docs pipeline.                |
 | [Troubleshooting](troubleshooting/troubleshooting.md) | Symptom → diagnostic-code table, gotchas, known limitations.       |
-| [Reference](reference/index.md)                       | The normative language/implementation specs and design records.    |
 
 ## Status
 
