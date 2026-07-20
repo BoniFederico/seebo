@@ -1,0 +1,18 @@
+/* Project-specific tweaks on top of Material for MkDocs. Keep this file small. */
+
+/* Slightly larger body tables — the docs are table-heavy (limits, API, codes). */
+.md-typeset table:not([class]) {
+  font-size: 0.7rem;
+}
+
+/* Center Mermaid diagrams. */
+.md-typeset .mermaid {
+  text-align: center;
+}
+
+/* Keep inline code in headings from wrapping awkwardly. */
+.md-typeset h1 code,
+.md-typeset h2 code,
+.md-typeset h3 code {
+  white-space: nowrap;
+}

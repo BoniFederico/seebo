@@ -11,8 +11,8 @@ npm run bench                      # timings (ms/op, ops/s)
 node --expose-gc bench/index.js    # timings + approximate KB/op (heap delta)
 ```
 
-The runner ([`bench/index.js`](../bench/index.js)) warms up each case (JIT) before timing and
-awaits async operations. Fixtures ([`bench/cases.js`](../bench/cases.js)) repeat realistic
+The runner ([`bench/index.js`](https://github.com/BoniFederico/seebo/blob/master/bench/index.js)) warms up each case (JIT) before timing and
+awaits async operations. Fixtures ([`bench/cases.js`](https://github.com/BoniFederico/seebo/blob/master/bench/cases.js)) repeat realistic
 blocks to a configurable `scale` (default 120), producing ~15–26 KB templates that exercise the
 lexer, parser, evaluator (render), the macro pipeline (`expand`+`run`+`finalize`) and `analyze`.
 
@@ -67,7 +67,7 @@ With parsing removed (cache on), `render run()` becomes evaluator-bound (~0.63 m
 formulas, ~1.3 µs/formula). The dispatch is already a `switch` on the node `kind` (an effective
 jump table), so it was left as is. The real redundancy was elsewhere:
 
-- **Memoized `collectDeclarations` by AST identity** ([`src/eval/symbols.js`](../src/eval/symbols.js)).
+- **Memoized `collectDeclarations` by AST identity** ([`src/eval/symbols.js`](https://github.com/BoniFederico/seebo/blob/master/src/eval/symbols.js)).
   The static declaration scan is a pure function of the AST but was re-run on **every** pass;
   it now runs once per template (a `WeakMap<Document, table>`), which matters for the multi-pass
   conversation loop and templates with many declarations. Safe: the table is read-only.
@@ -78,14 +78,14 @@ IMPL §11/§6.1 sanction memoizing `parse`/`analyze` by template (the `astRef` p
 IMPL §12.1 makes `astCache` an **opt-in** flag (default off, per clarifications §3 — so default
 behaviour and all tests are unchanged). When `optimizations.astCache` is enabled:
 
-- [`src/parser/index.js`](../src/parser/index.js) memoizes the AST per `(config, template)` —
+- [`src/parser/index.js`](https://github.com/BoniFederico/seebo/blob/master/src/parser/index.js) memoizes the AST per `(config, template)` —
   a `WeakMap` keyed by the config object identity (collected with the engine, never mixing
   vocabularies/delimiters) then a bounded `Map` by template string.
-- [`src/analyze/analyze.js`](../src/analyze/analyze.js) memoizes the `Analysis` the same way.
+- [`src/analyze/analyze.js`](https://github.com/BoniFederico/seebo/blob/master/src/analyze/analyze.js) memoizes the `Analysis` the same way.
 
 Both are **transparent**: the result is a pure function of `(config, template)`, returned
 read-only, so output is identical to the uncached path (locked by
-[`test/unit/cache.test.js`](../test/unit/cache.test.js)).
+[`test/unit/cache.test.js`](https://github.com/BoniFederico/seebo/blob/master/test/unit/cache.test.js)).
 
 `finalize` already short-circuits: it scans for the macro sigil once and returns immediately
 when no layout marker is present (the common case), so no extra cache was warranted there.

@@ -35,6 +35,7 @@ export default [
   // Disable formatting rules that conflict with Prettier. Keep last.
   prettier,
   {
-    ignores: ['node_modules/**', 'coverage/**'],
+    // `site/` is the MkDocs build output (generated, minified assets).
+    ignores: ['node_modules/**', 'coverage/**', 'site/**', '.venv/**'],
   },
 ];

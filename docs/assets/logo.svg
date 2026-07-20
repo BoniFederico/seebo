@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Seebo logo">
+  <!-- Pause bars + play triangle: suspend, then resume. -->
+  <g fill="#ffffff">
+    <rect x="3" y="5" width="3.4" height="14" rx="1.1" />
+    <rect x="8.6" y="5" width="3.4" height="14" rx="1.1" />
+    <path d="M15.2 6.6 21.6 12l-6.4 5.4z" />
+  </g>
+</svg>

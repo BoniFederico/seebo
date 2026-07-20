@@ -32,7 +32,8 @@ Trusted vs untrusted:
 ## Configurable limits
 
 All limits live in `config.limits` and have reasonable defaults
-([`src/util/limits.js`](../src/util/limits.js)). The four normative limits of SPEC §2.2 are
+([`src/util/limits.js`](https://github.com/BoniFederico/seebo/blob/master/src/util/limits.js)).
+The four normative limits of SPEC §2.2 are
 kept; the rest are additive hardening guards (IMPL §13, non-breaking per §14). When a limit is
 exceeded the engine fails with a **specific diagnostic code** — never a silent truncation or a
 crash.
@@ -67,7 +68,9 @@ Limits are off the hot path: a normal template parses and evaluates well under e
 
 Untrusted data and untrusted requirement ids never reach `Object.prototype`:
 
-- **JSON sanitization** ([`src/runtime/sanitize.js`](../src/runtime/sanitize.js)): object/array
+- **JSON sanitization**
+  ([`src/runtime/sanitize.js`](https://github.com/BoniFederico/seebo/blob/master/src/runtime/sanitize.js)):
+  object/array
   values are deep-cloned into fresh JSON-only structures. `__proto__` keys are **dropped**, and
   every kept key is created with `Object.defineProperty` (data descriptor), so an inherited
   setter can never run. Non-plain objects (class instances, `Date`, `Map`), functions, symbols,

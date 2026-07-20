@@ -1,0 +1,139 @@
+# MkDocs Material configuration for the Seebo documentation site.
+# Local preview:  pip install -r requirements.txt && mkdocs serve
+# CI build:       mkdocs build --strict  (broken internal links fail the build)
+
+site_name: Seebo
+site_description: >-
+  Suspendable Evaluation Engine Built with Opus — a typed, suspendable
+  expression/template engine with a pure synchronous core.
+site_author: Federico Boni
+site_url: https://bonifederico.github.io/seebo/
+
+repo_url: https://github.com/BoniFederico/seebo
+repo_name: BoniFederico/seebo
+edit_uri: edit/master/docs/
+
+copyright: Copyright &copy; 2026 Federico Boni — MIT License
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    # Light mode
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    # Dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.action.view
+    - content.tooltips
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      type: date
+      enable_creation_date: false
+      fallback_to_build_date: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/BoniFederico/seebo
+    - icon: fontawesome/brands/npm
+      link: https://www.npmjs.com/package/seebo
+
+# Fail loudly on authoring mistakes (combined with `mkdocs build --strict` in CI).
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Configuration: getting-started/configuration.md
+      - First run: getting-started/first-run.md
+  - Guide:
+      - Usage & extensibility: guide/usage.md
+      - Actions: guide/actions.md
+      - Performance: guide/performance.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Execution model: architecture/execution-model.md
+  - API:
+      - Overview: api/overview.md
+  - Development:
+      - Project structure: development/project-structure.md
+      - Coding guidelines: development/coding-guidelines.md
+      - Debugging: development/debugging.md
+      - Testing: testing/testing.md
+      - Deployment & release: deployment/deployment.md
+  - Security: security/security.md
+  - Troubleshooting: troubleshooting/troubleshooting.md
+  - Reference:
+      - reference/index.md
+      - Language & API spec: reference/spec.md
+      - Implementation spec: reference/impl.md
+      - v1 decisions: reference/clarifications.md
+      - Binding redesign (record): reference/binding-redesign.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md

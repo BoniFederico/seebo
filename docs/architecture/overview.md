@@ -1,25 +1,27 @@
-# Architecture
+# Architecture overview
 
-This document describes the Seebo pipeline and the responsibility of each module. It is
-the developer-facing companion to the reference specs in
-[`docs/initial_docs/spec.md`](initial_docs/spec.md) (language + API) and
-[`docs/initial_docs/impl.md`](initial_docs/impl.md) (implementation). Section references
+This page describes the Seebo pipeline and the responsibility of each module. It is the
+developer-facing companion to the reference specs in [`spec.md`](../reference/spec.md)
+(language + API) and [`impl.md`](../reference/impl.md) (implementation). Section references
 like `SPEC §x.y` / `IMPL §x` point to those documents.
 
-> **Status: working engine core.** Implemented end-to-end: `tokenize`, `parse`, the
-> runtime value system, the **suspendable evaluator** (`Ok | Susp | Err` with lazy gating
-> and requirement `Need`s), the pure `run` state machine, the **async driver**
-> (`drive`/`stebo`) with the four provider outcomes, `stopOn`, policy and limits, and the
-> static passes **`validate`** (accumulating diagnostics) and **`analyze`** (requirement
-> graph, execution plan, metrics), and the macro passes **`expand`** (aggregators
-> `ABSORB`/`MERGE`, pre-pass) and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`, post-pass).
-> The full expression grammar evaluates (literals, refs, producers, methods, object/array
-> literals, operators incl. temporal arithmetic, ternary, desugared `match`), and the SPEC §2.7
-> end-to-end example passes. The full conformance suite runs with **no skipped tests**.
-> Extension points are wired: custom types (`defineType` — construction/validation/stringify),
-> custom functions/transformers, custom finalize macros (`defineMacro` `apply`) and libraries;
-> `builtins.{types,functions,macros}` expose the standard vocabulary for `...builtins.all`.
-> Still pending: a shipped built-in `fake.*` library (the `defineLibrary` mechanism exists).
+!!! success "Status: working engine core"
+
+    Implemented end-to-end: `tokenize`, `parse`, the runtime value system, the
+    **suspendable evaluator** (`Ok | Susp | Err` with lazy gating and requirement `Need`s),
+    the pure `run` state machine, the **async driver** (`drive`/`stebo`) with the four
+    provider outcomes, `stopOn`, policy and limits, and the static passes **`validate`**
+    (accumulating diagnostics) and **`analyze`** (requirement graph, execution plan,
+    metrics), and the macro passes **`expand`** (aggregators `ABSORB`/`MERGE`, pre-pass)
+    and **`finalize`** (layout `REMOVE_*`/`COLLAPSE`, post-pass). The full expression
+    grammar evaluates (literals, refs, producers, methods, object/array literals, operators
+    incl. temporal arithmetic, ternary, desugared `match`), and the SPEC §2.7 end-to-end
+    example passes. The full conformance suite runs with **no skipped tests**. Extension
+    points are wired: custom types (`defineType` — construction/validation/stringify),
+    custom functions/transformers, custom finalize macros (`defineMacro` `apply`) and
+    libraries; `builtins.{types,functions,macros}` expose the standard vocabulary for
+    `...builtins.all`. Still pending: a shipped built-in `fake.*` library (the
+    `defineLibrary` mechanism exists).
 
 ## Design principles (SPEC §1.1)
 
@@ -36,15 +38,12 @@ testable, and lets the exact same code run on client and server.
 
 ## The pipeline
 
-```
- document ──▶ [LEX] ──▶ tokens ──▶ [PARSE] ──▶ AST
-                                         │
-                ┌────────────────────────┼────────────────────────────┐
-                ▼                         ▼                            ▼
-           [VALIDATE]                [ANALYZE]                  [RUN] (state machine)
-           diagnostics         graph / plan / capabilities     Value | Need | Error
-                                                                      │
-  pre-pass: [EXPAND aggregators] ──▶ run/driver loop ──▶ post-pass: [FINALIZE layout]
+```mermaid
+flowchart LR
+  DOC([document]) --> LEX --> TOK([tokens]) --> PARSE --> AST([AST])
+  AST --> VALIDATE["VALIDATE<br/>diagnostics"]
+  AST --> ANALYZE["ANALYZE<br/>graph · plan · capabilities"]
+  AST --> RUN["RUN (state machine)<br/>Value · Need · Error"]
 ```
 
 - **LEX / PARSE / VALIDATE / ANALYZE / RUN** are pure and synchronous (IMPL §1).
@@ -92,14 +91,12 @@ phase, where phase = longest dependency path), `capabilitiesUsed`, `staticValues
 Macros live in two phases that **frame** execution, in the canonical order _compose →
 resolve → clean up_ (SPEC §2.5). `stebo` chains them:
 
-```
- raw template
-      │  (a) EXPAND  ── pre-pass: inline ABSORB/MERGE aggregators
-      ▼
- composed template ──▶ [PARSE] ──▶ run/driver loop ──▶ resolved text
-                                                              │  (c) FINALIZE ── post-pass:
-                                                              ▼     apply REMOVE_*/COLLAPSE
-                                                          final output
+```mermaid
+flowchart LR
+  RAW([raw template]) --> EXPAND["EXPAND (pre-pass)<br/>inline ABSORB / MERGE"]
+  EXPAND --> COMP([composed template]) --> LOOP["PARSE → run / driver loop"]
+  LOOP --> RES([resolved text]) --> FIN["FINALIZE (post-pass)<br/>apply REMOVE_* / COLLAPSE"]
+  FIN --> OUT([final output])
 ```
 
 - **`expand({ template, templates }) → composed`** (async signature, IMPL §10.1). Parses
@@ -121,15 +118,18 @@ resolve → clean up_ (SPEC §2.5). `stebo` chains them:
   blank lines. Any unrecognized `@{…}` is left untouched, so arbitrary user data is never
   misinterpreted. No `eval`; deterministic.
 
-> **v1 scope.** `validate`/`analyze` currently run on the **raw** template (they do not
-> expand aggregators first), so requirements imported via `ABSORB`/`MERGE` are not yet seen
-> by the static passes — a known limitation to lift once `expand` feeds the symbol table.
+!!! note "v1 scope"
+
+    `validate`/`analyze` currently run on the **raw** template (they do not expand
+    aggregators first), so requirements imported via `ABSORB`/`MERGE` are not yet seen by
+    the static passes — a known limitation to lift once `expand` feeds the symbol table.
 
 ### Extensibility: the registry (SPEC §2.6)
 
-`createEngine` builds one immutable [`Registry`](../src/runtime/registry.js) from the config's
-`types`/`functions`/`macros`/`libraries`/`capabilities` and stores it on the normalized config.
-It is the single read-only source of custom vocabulary, consulted by:
+`createEngine` builds one immutable
+[`Registry`](https://github.com/BoniFederico/seebo/blob/master/src/runtime/registry.js)
+from the config's `types`/`functions`/`macros`/`libraries`/`capabilities` and stores it on
+the normalized config. It is the single read-only source of custom vocabulary, consulted by:
 
 - the **parser** — library namespaces (enables `Namespace` nodes) and custom macro families;
 - the **evaluator** — custom producers (`name(...)`), transformers (`recv.name(...)`, only
@@ -143,8 +143,8 @@ It is the single read-only source of custom vocabulary, consulted by:
 checked against the reserved words (`RESERVED_NAME`) and for uniqueness in its namespace
 (`NAME_CONFLICT`) — producers/types/libraries/capabilities share one namespace, macros another,
 transformers are keyed per receiver type. A violation throws `EngineConfigError` at
-`createEngine`. The `define*` factories return frozen descriptors; see
-[`USAGE.md`](USAGE.md) for examples.
+`createEngine`. The `define*` factories return frozen descriptors; see the
+[usage guide](../guide/usage.md) for examples.
 
 ## Module responsibilities
 
@@ -183,73 +183,21 @@ The action subsystem is split so the purity rule holds physically, not just by c
 `action({...})` is evaluated by the suspendable evaluator like `need`: it is collected into the
 `ActionPlan` only when its subtree is actually reached (lazy gating ⇒ "active actions only"), and
 an unresolved input requirement marks it `blocked` while the `Need` still flows through the normal
-suspend/resume loop. See [`ACTIONS.md`](ACTIONS.md).
-
-## Public contracts and versioning (SPEC §2.1, IMPL §15)
-
-Three independently-versioned contracts cross the engine↔application boundary:
-
-- `astVersion` — the AST shape (`src/ast/nodes.js`).
-- `stateVersion` — the `PublicState` shape (`src/run/run.js`).
-- `analysisVersion` — the `Analysis` shape (`src/analyze/analyze.js`).
-
-All start at `1` (clarifications §11). On `run`, a persisted `PublicState` is passed through
-`migrateState` (`src/util/versions.js`): an older `stateVersion` is upgraded by applying the
-registered migrators in sequence `v → v+1` (the `migrations` list is empty in v1), and a
-**newer** `stateVersion` is rejected with `UNSUPPORTED_STATE_VERSION` rather than guessed
-(IMPL §14, forward-compat not guaranteed).
+suspend/resume loop. See the [actions guide](../guide/actions.md).
 
 ## Security & limits
 
 The engine runs untrusted templates and untrusted data. Configurable resource limits
-([`src/util/limits.js`](../src/util/limits.js)) bound every phase and fail with a specific
-diagnostic code (`INPUT_LIMIT_EXCEEDED`, `TOKEN_LIMIT_EXCEEDED`, `NODE_LIMIT_EXCEEDED`,
-`NESTING_LIMIT_EXCEEDED` at parse; `STEP_LIMIT_EXCEEDED` at run; `DEPTH_EXCEEDED`,
-`MAX_PHASES_EXCEEDED`, `TIMEOUT` around the driver). Prototype pollution is blocked at the
-data boundary (sanitizer + `safeSet`), and the core uses no ambient globals or `eval`. The
-full threat model, limit table and out-of-scope notes are in [`SECURITY.md`](SECURITY.md).
+([`src/util/limits.js`](https://github.com/BoniFederico/seebo/blob/master/src/util/limits.js))
+bound every phase and fail with a specific diagnostic code (`INPUT_LIMIT_EXCEEDED`,
+`TOKEN_LIMIT_EXCEEDED`, `NODE_LIMIT_EXCEEDED`, `NESTING_LIMIT_EXCEEDED` at parse;
+`STEP_LIMIT_EXCEEDED` at run; `DEPTH_EXCEEDED`, `MAX_PHASES_EXCEEDED`, `TIMEOUT` around the
+driver). Prototype pollution is blocked at the data boundary (sanitizer + `safeSet`), and the
+core uses no ambient globals or `eval`. The full threat model, limit table and out-of-scope
+notes are in the [security model](../security/security.md).
 
-## Execution model (the conversation)
+## Where to go next
 
-```
-Created ──▶ Running ──▶ Waiting(Need…) ──▶ Running ──▶ … ──▶ Completed   (or ──▶ Failed)
-```
-
-- `run(state) → state` evaluates as far as possible using only `state.resolved`, then
-  collects the active `Need`s into `pending`. Pure, synchronous (IMPL §6.2).
-- The **driver** satisfies `Need`s via capabilities and re-runs. Capabilities returning
-  `undefined` mean "not me" (`Unresolved`); those listed in `stopOn` are returned to the
-  caller (e.g. interactive `user`). See `ProviderOutcome` (IMPL §7.1).
-- v1 resumes by **full re-evaluation** (strategy 1, IMPL §6.4); continuations/checkpoints
-  are optional future optimizations and are intentionally absent.
-
-## v1 scope notes (clarifications)
-
-- All optimizations are **off by default**. `optimizations.astCache` is implemented as a
-  transparent in-memory parse/analysis cache (IMPL §11/§12.1); `lazyParse`, `stream` and
-  `objectPool` are accepted but inert. See [`PERFORMANCE.md`](PERFORMANCE.md).
-- No streaming output (`steboStream`) is exposed in v1.
-- No external runtime dependencies. A built-in `fake.*` library is **not** shipped; it is only
-  an example of what `defineLibrary` enables.
-- `date(pattern, text)` uses an internal mini parser/formatter over a normative token
-  subset (`YYYY MM DD HH mm ss Z`).
-
-## Positions (normative contract)
-
-`Position` (`src/lexer/tokens.js`) is normatively **offset-based**: `{ start, end }`,
-matching IMPL §2 and Appendix A.
-
-> **Only `start`/`end` offsets are normative. `line`/`column` metadata is optional,
-> derived from offsets, and provided solely for diagnostics/editor convenience.**
-
-`start`/`end` are absolute offsets into the template source and are the only position
-fields required by tokens, AST nodes, diagnostics, internal source maps and the
-conformance tests. The optional `line`/`column` fields (v1 decision):
-
-- MUST always be derivable from `start`/`end`;
-- MUST NOT be required by normative tests;
-- MUST NOT be used for semantic logic, parsing, validation or AST comparison;
-- are NOT a stable compatibility surface and may be absent.
-
-If an editor-friendly mode is needed later, prefer a separate utility such as
-`enrichPositionsWithLineColumn(source, astOrTokens)` over depending on these fields.
+- [Execution model](execution-model.md) — the conversation loop, state machine and contracts.
+- [Usage & extensibility](../guide/usage.md) — practical examples for every extension point.
+- [Performance](../guide/performance.md) — benchmarks and the opt-in `astCache`.
