@@ -589,10 +589,7 @@ function injectCapability(args, name, position) {
   const descriptor = {
     kind: 'ObjectLit',
     position: first.position,
-    entries: [
-      { key: 'args', value: argsObject },
-      capabilityEntry,
-    ],
+    entries: [{ key: 'args', value: argsObject }, capabilityEntry],
   };
   return [descriptor, ...args.slice(1)];
 }
