@@ -136,3 +136,51 @@ test('args dependency on a pure value binding is resolved and forwarded', async 
   assert.equal(driven.status, 'completed');
   assert.match(driven.output ?? '', /"rate":"22%"/);
 });
+
+/* ----------------------------------------------------------------------------------- *
+ * Capability sugar over a dynamic expression (SPEC §1.6/§2.4): `cap(expr)` wraps `expr` as
+ * `args.ref` with a synthesized id. When `expr` is itself another capability-sugar call
+ * (e.g. `previous(textbox({...}))`), the outer need depends on the inner one exactly like an
+ * explicit `args: { ref: innerNeed }` would — the dependency edge must appear in the static
+ * requirement graph too, not just gate correctly at runtime.
+ * ----------------------------------------------------------------------------------- */
+
+function pickerEngine() {
+  return createEngine({
+    capabilities: {
+      previous: (need) => `picked(${JSON.stringify(/** @type {any} */ (need).args ?? {})})`,
+      textbox: () => undefined, // interactive: never resolved by a provider
+    },
+  });
+}
+
+test('capability sugar over a dynamic expression creates a static dependency edge', () => {
+  const tpl = "Hello ${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
+  const analysis = pickerEngine().analyze(tpl);
+  assert.equal(analysis.requirementGraph.edges.length, 1);
+  const [[from, to]] = analysis.requirementGraph.edges;
+  assert.equal(from, 'name');
+  assert.match(to, /^previous@/);
+  assert.deepEqual(analysis.executionPlan, [
+    { phase: 1, requirements: ['name'] },
+    { phase: 2, requirements: [to] },
+  ]);
+});
+
+test('capability sugar over a dynamic expression gates the outer need at runtime', async () => {
+  const engine = pickerEngine();
+  const tpl = "Hello ${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
+  let state = engine.run(engine.start(tpl));
+  assert.deepEqual(
+    state.pending.map((p) => p.id),
+    ['name']
+  );
+  state.resolved.name = makeString('Alice');
+  state = engine.run(state);
+  assert.equal(state.pending.length, 1);
+  assert.match(state.pending[0].id, /^previous@/);
+  assert.deepEqual(state.pending[0].args, { ref: 'Alice' });
+  const driven = await engine.drive(engine.start(tpl, { name: 'Alice' }));
+  assert.equal(driven.status, 'completed');
+  assert.match(driven.output ?? '', /Hello picked\(\{"ref":"Alice"\}\)!/);
+});

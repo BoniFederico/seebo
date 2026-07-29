@@ -121,6 +121,9 @@ function children(expr) {
  * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). The descriptor must
  * carry a string `id` and a `capability`; the **capability sugar** `cap('id')` produces this
  * shape at parse time (`need({ id:'id', capability:'cap' })`), so it is the idiomatic short form.
+ * Sugar over a dynamic expression (`cap(expr)`) also produces a string `id`, synthesized at parse
+ * time from the call site (SPEC §2.4) — `id` is always a plain string here; nothing downstream
+ * (the dependency graph, `ctx.needs`/`ctx.resolved` maps) accepts anything else as a key.
  *
  * The `type` is left **undefined** when the descriptor omits it, so a capability contract can fill
  * it later (see {@link applyCapabilityContract}); the final fallback to `string()` is applied
@@ -331,10 +334,12 @@ function readDescriptorObject(obj) {
 }
 
 /**
- * Collects the binding names a capability `args` expression depends on (SPEC §2.4): the name of
+ * Collects the requirement ids a capability `args` expression depends on (SPEC §2.4): the name of
  * every `Ref` appearing anywhere in the expression (the root of a `Member` chain like `region.code`
- * is a `Ref`, so it is captured too). Used to build static dependency edges so `analyze` can order
- * the needs into phases; the value itself stays runtime.
+ * is a `Ref`, so it is captured too), plus the id of every nested `need(...)` call (e.g. the
+ * `args: { ref: need(...) }` shape produced by capability sugar over a dynamic expression,
+ * `previous(textbox(...))`) — mirrors `analyze`'s `collectRefIds`. Used to build static dependency
+ * edges so `analyze` can order the needs into phases; the value itself stays runtime.
  * @param {import('../ast/nodes.js').Expr} expr
  * @returns {string[]}
  */
@@ -345,6 +350,14 @@ export function collectArgDeps(expr) {
   const visit = (e) => {
     if (!e || typeof e !== 'object') return;
     if (e.kind === 'Ref' && !deps.includes(e.name)) deps.push(e.name);
+    else if (e.kind === 'Call' && e.callee === 'need') {
+      try {
+        const id = extractRequirement(e).id;
+        if (!deps.includes(id)) deps.push(id);
+      } catch {
+        /* ignore malformed descriptor */
+      }
+    }
     for (const child of children(e)) visit(child);
   };
   visit(expr);
