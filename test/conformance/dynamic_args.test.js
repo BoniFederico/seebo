@@ -155,7 +155,7 @@ function pickerEngine() {
 }
 
 test('capability sugar over a dynamic expression creates a static dependency edge', () => {
-  const tpl = "Hello \${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
+  const tpl = "Hello ${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
   const analysis = pickerEngine().analyze(tpl);
   assert.equal(analysis.requirementGraph.edges.length, 1);
   const [[from, to]] = analysis.requirementGraph.edges;
@@ -169,7 +169,7 @@ test('capability sugar over a dynamic expression creates a static dependency edg
 
 test('capability sugar over a dynamic expression gates the outer need at runtime', async () => {
   const engine = pickerEngine();
-  const tpl = "Hello \${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
+  const tpl = "Hello ${ previous(textbox({ id: 'name', label: 'Your name' })) }!";
   let state = engine.run(engine.start(tpl));
   assert.deepEqual(
     state.pending.map((p) => p.id),
