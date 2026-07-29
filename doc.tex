@@ -1,0 +1,3002 @@
+% !TEX program = pdflatex
+%==============================================================================
+%  seebo -- Dispensa
+%  Motore di valutazione sospendibile (Suspendable Evaluation Engine)
+%  Compilazione: pdflatex doc.tex (due volte, per indice e riferimenti)
+%==============================================================================
+\documentclass[11pt,a4paper]{book}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{lmodern}
+
+\usepackage[a4paper,margin=2.7cm]{geometry}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
+\usepackage{listings}
+
+\usepackage[hidelinks]{hyperref}
+
+%------------------------------------------------------------------ Colori (diagrammi/codice)
+\definecolor{seeboBlue}{HTML}{1F4E79}
+\definecolor{seeboGreen}{HTML}{2E7D32}
+\definecolor{seeboRed}{HTML}{B00020}
+\definecolor{seeboAccent}{HTML}{2E7D9A}
+\definecolor{codebg}{HTML}{F6F8FA}
+\definecolor{coderule}{HTML}{D0D7DE}
+
+%------------------------------------------------------------------ Codice sorgente
+\lstdefinelanguage{seebo}{
+  morekeywords={need,bind,prepare,action,now,date,duration,int,float,bool,string,
+    datetime,object,array,match,and,or,not,in,true,false,null,
+    ABSORB,MERGE,COLLAPSE,REMOVE_LINE,REMOVE_LEFT,REMOVE_RIGHT},
+  morekeywords=[2]{import,from,export,const,let,var,await,async,function,return,new,
+    if,else,for,while,of,typeof,throw,try,catch,class,extends},
+  morekeywords=[3]{createEngine,builtins,defineType,defineFunction,defineMacro,
+    defineCapability,defineLibrary,defineAction,normalizeConfig,engine,tokenize,parse,
+    validate,analyze,start,run,expand,finalize,drive,stebo,resolve,eval,stringify,
+    executeAction,executeActionPlan,dryRunAction,dryRunActionPlan,compensateAction,
+    compensateActionPlan,computeIdempotencyKey},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+}
+\lstset{
+  language=seebo,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\bfseries,
+  keywordstyle=[2]\bfseries,
+  keywordstyle=[3]\bfseries,
+  commentstyle=\itshape\color{gray},
+  showstringspaces=false,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  tabsize=2,
+  frame=single,
+  rulecolor=\color{coderule},
+  backgroundcolor=\color{codebg},
+  framesep=5pt,
+  xleftmargin=8pt,
+  aboveskip=8pt,
+  belowskip=6pt,
+}
+\let\code\lstinline
+\newcommand{\ic}[1]{{\ttfamily #1}}
+
+%------------------------------------------------------------------ Blocchi (amsthm, standard)
+\theoremstyle{definition}
+\newtheorem*{obiettivi}{Obiettivi}
+\newtheorem*{nota}{Nota}
+\newtheorem*{teoria}{Teoria}
+\newtheorem*{attenzione}{Attenzione}
+
+%------------------------------------------------------------------ Comandi di comodo
+\newcommand{\seebo}{\textsf{seebo}}
+\newcommand{\spec}[1]{\textsc{spec}~\S#1}
+\newcommand{\impl}[1]{\textsc{impl}~\S#1}
+
+\begin{document}
+\frontmatter
+
+%------------------------------------------------------------------ Frontespizio
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries seebo\par}
+\vspace{0.5cm}
+{\large Suspendable Evaluation Engine Built with Opus\par}
+\vspace{2.5cm}
+{\LARGE\bfseries Motore di valutazione sospendibile\par}
+\vspace{0.6cm}
+{\Large Dispensa di dettaglio per lo sviluppatore\par}
+\vspace{1cm}
+{\large Linguaggio, modello di esecuzione, API ed estensibilità\par}
+\vfill
+{Versione del motore \texttt{0.3.0} \quad Node.js $\geq$ 20 \quad Licenza MIT\par}
+\vspace{1.5cm}
+\end{titlepage}
+
+%------------------------------------------------------------------ Come leggere
+\chapter*{Come leggere questa dispensa}
+\addcontentsline{toc}{chapter}{Come leggere questa dispensa}
+
+La dispensa è organizzata in quattro parti, di difficoltà crescente ma
+leggibili anche in modo selettivo.
+
+\begin{itemize}
+  \item \textbf{Parte I --- Concetti.} Che cos'è \seebo, i quattro principi
+    fondanti, il modello del ``documento come conversazione''. Da leggere per
+    prima: fissa il vocabolario mentale usato ovunque nel resto.
+  \item \textbf{Parte II --- Il linguaggio.} Il sistema di tipi, gli operatori,
+    i produttori e i trasformatori, il modello di esecuzione (requirement,
+    capability, need), le macro e le azioni. È il cuore ``da programmatore''.
+  \item \textbf{Parte III --- L'API e la pratica.} \ic{createEngine} e la
+    configurazione, l'analisi statica, l'esecuzione e l'orchestrazione,
+    l'estensibilità. Qui si impara a \emph{integrare} \seebo\ in
+    un'applicazione.
+  \item \textbf{Parte IV --- Garanzie e interni.} Architettura della pipeline,
+    sicurezza e limiti, prestazioni, determinismo e versionamento. La parte
+    ``da ingegnere'': perché il sistema è sicuro, terminante e analizzabile.
+  \item \textbf{Appendici.} Riferimento completo dei codici diagnostici, della
+    grammatica e dell'AST, tabelle riassuntive dell'API, glossario.
+\end{itemize}
+
+\paragraph{Convenzioni tipografiche.} I blocchi di codice usano un carattere a
+spaziatura fissa; le parole chiave del linguaggio e della libreria sono
+evidenziate. Nel testo, gli identificatori e i frammenti brevi appaiono come
+\ic{createEngine} o \code|${ ... }|. I riferimenti alle specifiche sorgenti
+sono indicati con \spec{x.y} (specifica del linguaggio e dell'API) e
+\impl{x} (specifica implementativa). Alcuni blocchi ricorrenti scandiscono la
+lettura:
+
+\begin{nota}
+Un chiarimento pratico o una precisazione importante.
+\end{nota}
+\begin{teoria}
+La motivazione teorica di una scelta di progetto: il ``perché'', non solo il
+``come''.
+\end{teoria}
+\begin{attenzione}
+Un errore frequente o un'insidia da evitare.
+\end{attenzione}
+\paragraph{Lingua.} Il testo espositivo è in italiano; il codice, i nomi
+dell'API, gli identificatori e i messaggi diagnostici restano in inglese, come
+nel progetto originale, così da coincidere esattamente con ciò che si scrive e
+si legge a video.
+
+\tableofcontents
+
+\mainmatter
+
+%##############################################################################
+\part{Concetti}
+%##############################################################################
+
+\chapter{Introduzione a seebo}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Capire quale problema risolve \seebo\ e in che cosa differisce da un
+    tradizionale template engine.
+  \item Conoscere i quattro principi fondanti (tipizzazione, purezza,
+    non-Turing-completezza, sospendibilità).
+  \item Installare la libreria ed eseguire il primo template.
+\end{itemize}
+\end{obiettivi}
+
+\section{Che cos'è seebo}
+
+\seebo\ --- acronimo di \emph{Suspendable Evaluation Engine Built with Opus} ---
+è un \textbf{motore di valutazione sospendibile}. Elabora un \emph{documento}:
+una qualsiasi stringa di testo che può contenere \emph{slot}, cioè porzioni che
+durante la valutazione vengono sostituite dal risultato di una piccola
+espressione tipata.
+
+Detto così sembra la definizione di un normale \emph{template engine} (Jinja,
+Liquid, Handlebars). La differenza sta in una parola: \textbf{sospendibile}.
+Quando la valutazione incontra un dato che il motore non possiede ancora, non
+fallisce e non produce una stringa vuota: emette un \textbf{bisogno} (un
+\ic{Need}) e \emph{si mette in pausa}. Un risolutore esterno --- un utente, una
+API, un database, una cache, un modello di linguaggio --- fornisce il dato, e la
+valutazione \emph{riprende} da dove era rimasta.
+
+\begin{teoria}
+La tesi centrale del progetto è che \textbf{il documento finale è soltanto
+l'ultimo stato di una conversazione} tra il motore e un insieme di risolutori
+esterni. Il rendering di un template è solo \emph{una} delle applicazioni
+possibili: il modello di base è la valutazione che si può sospendere e riprendere.
+La ``risoluzione multi-fase'' (chiedere input a schermo, una schermata per volta)
+non è l'essenza del sistema, ma un caso particolare in cui il risolutore esterno
+è l'utente umano.
+\end{teoria}
+
+\section{I quattro principi fondanti}
+
+Molte scelte successive discendono da quattro principi. Conviene enunciarli
+subito.
+
+\begin{enumerate}
+  \item \textbf{Ogni valore è tipato.} Internamente non si lavora su ``stringhe e
+    basta'', ma su oggetti tipati: interi, decimali, booleani, stringhe, date,
+    \emph{durate}, oggetti JSON, array. La conversione in testo
+    (\emph{stringhizzazione}) avviene \emph{solo alla fine}, quando il valore di
+    uno slot va inserito nel documento. Tenere il tipo fino all'ultimo elimina
+    conversioni ripetute e ambiguità (una data resta una data finché non la si
+    formatta) e abilita controlli di tipo significativi.
+  \item \textbf{La valutazione è priva di effetti collaterali} (\emph{pure}).
+    Valutare una formula non modifica lo stato del motore: non esistono
+    assegnazioni, contatori, mutazioni. Le ``dichiarazioni'' sono raccolte
+    \emph{staticamente} dal testo, non come effetto dell'esecuzione. La purezza è
+    ciò che rende possibile l'analisi statica e la memoizzazione, e rende il
+    motore sicuro da eseguire anche sul client.
+  \item \textbf{Il linguaggio è volutamente non Turing-completo.} Niente cicli
+    illimitati, niente ricorsione utente, niente funzioni definite dall'utente.
+    L'unica forma di ripetizione è l'inclusione di template, che è \emph{limitata}
+    (profondità massima, anti-ciclo). La \emph{totalità} --- ogni valutazione
+    termina --- si ottiene solo rinunciando alla potenza di calcolo piena.
+  \item \textbf{La valutazione è sospendibile.} Valutare un'espressione non
+    produce soltanto un \emph{valore} o un \emph{errore}: può produrre anche un
+    \textbf{bisogno} (\ic{Need}). In quel caso la valutazione si sospende invece
+    di fallire, e potrà essere ripresa quando il bisogno sarà soddisfatto.
+\end{enumerate}
+
+\begin{nota}
+Una conseguenza architetturale governa tutto: \textbf{il cuore del motore è puro
+e sincrono; l'unico componente asincrono è il driver}. Questo rende lo stato
+serializzabile, la logica testabile, e permette di eseguire \emph{lo stesso
+identico codice} sul client (per la UX) e sul server (che resta l'autorità che
+ri-valida gli output definitivi).
+\end{nota}
+
+\section{Perché non un normale template engine}
+
+Un template tradizionale è una funzione ``tutto-o-niente'': gli si passano tutti
+i dati e restituisce testo, oppure fallisce. \seebo\ ribalta la prospettiva: non
+è l'utente che ``riempie le variabili'', ma il \textbf{template che dichiara i
+propri bisogni} e qualcuno, fuori dal motore, li soddisfa. Il template dichiara
+\emph{che cosa} gli serve (un cliente, una città, un segreto) senza sapere
+\emph{da dove} arriverà. Questa \emph{inversione delle dipendenze} permette di
+sostituire l'intero backend --- da un form a una query SQL a una chiamata a un
+LLM --- senza toccare i template.
+
+\section{Installazione e primo template}
+
+\seebo\ è una libreria JavaScript puro (con contratti documentati in JSDoc),
+senza passi di build e \textbf{senza dipendenze di runtime}. Richiede Node.js
+$\geq$ 20 (usa ESM nativo e \ic{node:test}).
+
+\begin{lstlisting}
+npm install seebo
+\end{lstlisting}
+
+Il ``ciao mondo'' di \seebo\ è un template completamente statico, risolto con una
+sola chiamata di orchestrazione:
+
+\begin{lstlisting}
+import { createEngine, builtins } from 'seebo';
+
+const engine = createEngine({
+  ...builtins.all,   // vocabolario standard esplicito (opzionale: e sempre attivo)
+  locale: 'it-IT',
+});
+
+// Template statico -> una sola chiamata asincrona.
+const res = await engine.stebo({ template: '${ 1 + 2 * 3 }' });
+res.status; // 'completed'
+res.output; // '7'
+\end{lstlisting}
+
+Si noti \code|${ 1 + 2 * 3 }|: uno \emph{slot formula}. Il testo fuori dagli slot
+è copiato verbatim; dentro lo slot vive un'espressione, qui valutata rispettando
+la precedenza degli operatori (\code|*| lega più forte di \code|+|), dunque
+\ic{7}.
+
+\subsection{La sospensione in azione}
+
+Il tratto distintivo si vede appena un valore manca. Qui il template chiede un
+nome che non abbiamo ancora:
+
+\begin{lstlisting}
+const engine = createEngine({
+  capabilities: {
+    // Una capability risolve un need; restituire undefined significa "non io".
+    user: () => undefined,
+  },
+});
+
+let state = engine.start("Hello ${ user({ id:'name', type:string() }) }!");
+state = engine.run(state);        // puro, sincrono
+state.status;                     // 'waiting'
+state.pending.map((r) => r.id);   // ['name']
+
+// Forniamo il valore (come farebbe un host o un risolutore esterno) e riprendiamo.
+state = engine.run({ ...state, resolved: { ...state.resolved, name: 'World' } });
+state.status;                     // 'completed'
+state.output;                     // 'Hello World!'
+\end{lstlisting}
+
+La prima \ic{run} non ha fallito: ha prodotto lo stato \ic{waiting} con un
+\emph{requirement} pendente di \ic{id} \ic{'name'}. Dopo aver inserito il valore
+in \ic{resolved}, la seconda \ic{run} completa il documento. Questo ciclo
+``valuta $\rightarrow$ sospendi $\rightarrow$ soddisfa $\rightarrow$ riprendi'' è
+il modello operativo di \seebo, formalizzato nel prossimo capitolo.
+
+\begin{nota}
+\ic{run} è \textbf{pura e sincrona}: riceve uno stato e ne restituisce uno nuovo,
+senza I/O. Lo stato è un semplice oggetto JSON serializzabile: si può salvare in
+Redis, in un database, nel browser, e riprendere la conversazione altrove ---
+persino in un altro processo.
+\end{nota}
+
+\section{Anatomia del pacchetto}
+
+La superficie pubblica si importa da \ic{seebo}; il solo sotto-modulo separato è
+\ic{seebo/actions}, che ospita l'unica parte capace di produrre effetti esterni
+(Capitolo~\ref{ch:actions}).
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Import} & \textbf{Contenuto} \\
+\midrule
+\ic{seebo} & \ic{createEngine}, \ic{builtins}, le fabbriche \ic{define*}, le
+costanti di versione, gli enum dei contratti pubblici. \\
+\ic{seebo/actions} & Il livello di \emph{esecuzione} delle azioni:
+\ic{executeActionPlan}, \ic{dryRunAction}, \ic{compensateAction}, \ldots\ ---
+l'unico modulo con effetti collaterali. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\chapter{Il modello: documento, slot, conversazione}
+\label{ch:modello}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Distinguere i tre tipi di slot e conoscere le regole di delimitazione ed
+    escaping.
+  \item Comprendere il ciclo di vita di una valutazione come macchina a stati.
+  \item Collocare le fasi della pipeline (composizione, risoluzione, rifinitura).
+\end{itemize}
+\end{obiettivi}
+
+\section{Slot e delimitatori}
+
+Uno slot inizia con un \textbf{sigillo} (\code|$|, \code|#| o \code|@|) seguito
+da \code|{| e termina con \code|}|. Esistono tre tipi di slot:
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll p{6.6cm}@{}}
+\toprule
+\textbf{Slot} & \textbf{Sintassi} & \textbf{Significato} \\
+\midrule
+Formula & \code|${ espressione }| & Valutata e stringhizzata all'emissione. \\
+Commento & \code|#{ ... }| & Rimosso dall'output. \\
+Macro & \code|@{ NOME(...) }| & Operazione a livello di documento
+(aggregatore o layout). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}[Regola di bilanciamento]
+Dentro uno slot, parentesi graffe, quadre e apici devono essere bilanciati: il
+lexer riconosce la \code|}| di chiusura di primo livello tenendo conto delle
+stringhe e delle parentesi annidate. Così una formula può contenere oggetti
+(\code|{ ... }|) e array (\code|[ ... ]|) senza chiudere lo slot per errore.
+\end{nota}
+
+\subsection{Escaping dei sigilli}
+
+Le sequenze \code|${|, \code|#{|, \code|@{| possono comparire nel testo ospite --- in
+particolare \code|${| collide con i \emph{template literal} di JavaScript e con
+le variabili di shell. Per emettere \emph{letteralmente} queste sequenze si
+premette una barra rovescia:
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Si scrive} & \textbf{Si ottiene} \\
+\midrule
+\verb|\${| & \code|${| \\
+\verb|\#{| & \code|#{| \\
+\verb|\@{| & \code|@{| \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{teoria}
+La graffa singola è più leggera della tripla \code|{{{...}}}| di altri motori, ma
+il rischio di falsi positivi è reale (JSON, JS, shell). Due mitigazioni: il
+sigillo \code|$|/\code|#|/\code|@| \emph{prima} della graffa riduce molto i falsi
+positivi; e i delimitatori sono \textbf{configurabili} in \ic{createEngine}
+(Capitolo~\ref{ch:config}), così un documento pieno di \code|${}| JavaScript può
+scegliere un sigillo diverso. La regola di escaping resta la rete di sicurezza.
+\end{teoria}
+
+\section{Il documento come conversazione}
+\label{sec:conversazione}
+
+Mettendo insieme la sospendibilità (principio 4) e il modello dei requirement
+(Capitolo~\ref{ch:requirement}), una \textbf{conversazione} è la successione di
+stati attraverso cui passa la valutazione.
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=8mm and 16mm,
+  state/.style={rectangle,rounded corners=3pt,draw=seeboBlue,fill=seeboBlue!8,
+    minimum height=9mm,minimum width=22mm,font=\sffamily\small,align=center},
+  term/.style={rectangle,rounded corners=3pt,draw=seeboGreen,fill=seeboGreen!10,
+    minimum height=9mm,minimum width=22mm,font=\sffamily\small,align=center},
+  fail/.style={rectangle,rounded corners=3pt,draw=seeboRed,fill=seeboRed!8,
+    minimum height=9mm,minimum width=22mm,font=\sffamily\small,align=center},
+  arr/.style={-{Stealth[length=2.4mm]},thick,draw=seeboAccent}]
+  \node[state] (created) {Created};
+  \node[state,right=of created] (running) {Running};
+  \node[state,right=of running] (waiting) {Waiting\\\scriptsize(Need\ldots)};
+  \node[term,right=of waiting] (completed) {Completed};
+  \node[fail,below=12mm of waiting] (failed) {Failed};
+  \draw[arr] (created) -- (running);
+  \draw[arr] (running) -- (waiting);
+  \draw[arr] (waiting.north) to[out=120,in=60,looseness=1.2] node[above,font=\scriptsize,color=seeboAccent]{soddisfa Need} (running.north);
+  \draw[arr] (running) -- (completed);
+  \draw[arr] (running.south) to[out=-90,in=180] (failed.west);
+  \draw[arr] (waiting) -- (failed);
+\end{tikzpicture}
+\caption{Il ciclo di vita di una conversazione. \ic{start} produce lo stato
+iniziale (\ic{running}); \ic{run} valuta il più possibile; se emergono
+\ic{Need} lo stato diventa \ic{waiting}; un risolutore li soddisfa e si torna a
+\ic{running}; senza \ic{Need} residui si arriva a \ic{completed}. Un errore
+fatale porta a \ic{failed}.}
+\label{fig:conversazione}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Created:} c'è un template e uno stato iniziale (eventuali valori
+    noti). È lo stato prodotto da \ic{start}, che concretamente porta
+    \ic{status: 'running'}.
+  \item \textbf{Running:} il motore valuta il più possibile usando \emph{solo}
+    ciò che ha nello stato.
+  \item \textbf{Waiting:} la valutazione ha prodotto uno o più \ic{Need}; il
+    motore si sospende e li espone in \ic{pending}. Un risolutore esterno (umano,
+    AI, API, cache, DB) li soddisfa.
+  \item \textbf{Completed:} nessun \ic{Need} residuo; il documento è interamente
+    risolto e \ic{output} contiene il testo finale.
+  \item \textbf{Failed:} stato terminale d'errore (violazione di tipo a runtime,
+    ciclo di inclusione, limite superato); lo stato porta le \ic{diagnostics}.
+\end{itemize}
+
+\begin{teoria}[Terminazione del ciclo]
+L'insieme dei requirement \emph{attivi} cresce in modo \textbf{monotòno} (un
+requirement attivato non si disattiva nello stesso ciclo) e l'universo dei
+requirement dichiarati è \textbf{finito}: quindi il ciclo raggiunge un
+\textbf{punto fisso} in un numero finito di passi (limitato da
+\ic{limits.maxPhases}). È il pendant pratico della totalità del linguaggio.
+\end{teoria}
+
+\section{Le fasi di elaborazione}
+
+Le macro (Capitolo~\ref{ch:macro}) vivono in fasi separate dalla risoluzione
+delle formule. L'ordine canonico è \textbf{comporre $\rightarrow$ riempire
+$\rightarrow$ ripulire}:
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  box/.style={rectangle,rounded corners=2pt,draw=seeboBlue,fill=seeboBlue!7,
+    minimum height=11mm,minimum width=30mm,font=\sffamily\small,align=center},
+  lab/.style={font=\scriptsize\itshape,color=seeboAccent,align=center},
+  arr/.style={-{Stealth[length=2.4mm]},thick,draw=seeboAccent}]
+  \node[box] (expand) {EXPAND\\\scriptsize aggregatori (pre-pass)};
+  \node[box,right=18mm of expand] (run) {ciclo RUN\,/\,DRIVER\\\scriptsize risoluzione formule};
+  \node[box,right=18mm of run] (finalize) {FINALIZE\\\scriptsize layout (post-pass)};
+  \draw[arr] (expand) -- node[above,lab]{documento\\composto} (run);
+  \draw[arr] (run) -- node[above,lab]{testo\\risolto} (finalize);
+\end{tikzpicture}
+\caption{Le tre fasi che l'orchestratore \ic{stebo} incatena. Prima si assembla
+il documento completo (gli aggregatori possono introdurre nuove formule e nuovi
+requirement), poi si riempiono le formule (la conversazione vede \emph{tutti} i
+requirement, anche quelli importati), infine si rifinisce il layout sul testo
+ormai risolto.}
+\label{fig:fasi}
+\end{figure}
+
+Questo capitolo ha fissato il ``contenitore''. I prossimi entrano nel linguaggio
+vero e proprio: prima i \emph{valori} (i tipi), poi i \emph{modi} di combinarli
+(operatori, produttori, trasformatori), infine il \emph{modello di esecuzione}
+(requirement, capability, need).
+
+%##############################################################################
+\part{Il linguaggio}
+%##############################################################################
+
+\chapter{Il sistema di tipi}
+\label{ch:tipi}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Conoscere gli otto tipi base e la struttura di un valore
+    (\ic{type}/\ic{value}/\ic{format}/\ic{constraints}).
+  \item Distinguere \ic{format} (come si visualizza) da \ic{constraints} (che
+    cosa è valido) e capire dove vive il \ic{default}.
+  \item Padroneggiare il modello temporale: \ic{datetime} come istante,
+    \ic{duration} come intervallo con segno.
+\end{itemize}
+\end{obiettivi}
+
+\section{Un valore è un record tipato}
+
+Ogni dato che circola nella valutazione è un \textbf{record immutabile} con
+quattro campi:
+
+\begin{lstlisting}
+{ type, value, format, constraints }
+\end{lstlisting}
+
+\begin{itemize}
+  \item \ic{type} --- il nome del tipo (uno degli otto base, o un tipo custom);
+  \item \ic{value} --- la rappresentazione interna canonica (un numero JS, una
+    stringa, epoch\,ms per le date, secondi per le durate, un JSON per
+    oggetti/array);
+  \item \ic{format} --- \emph{come} il valore viene reso in stringa. È un oggetto
+    a chiavi nominate, con un default per tipo;
+  \item \ic{constraints} --- i \emph{vincoli di validità} a cui il valore deve
+    sottostare. Anch'esso un oggetto a chiavi nominate, con default per tipo.
+\end{itemize}
+
+Il record è \textbf{profondamente congelato} (\ic{Object.freeze}): ogni tentativo
+di mutazione è un no-op silenzioso. I builder \ic{.format(...)} e
+\ic{.constraints(...)} non mutano nulla, ma restituiscono un \emph{nuovo} valore
+(sono \emph{persistenti}). La \textbf{stringhizzazione avviene una sola volta},
+all'emissione dello slot: fino a quel momento una data resta una data, un numero
+resta un numero.
+
+\begin{teoria}
+Tenere il tipo fino all'ultimo (principio~1) elimina un'intera classe di bug: non
+si sommano due stringhe credendo di sommare due date, non si arrotonda due volte,
+non si perde la granularità di un istante. Il ``piccolo sistema di tipi'' costa un
+po' di lavoro implementativo ma ripaga in correttezza degli operatori e in
+controlli statici significativi.
+\end{teoria}
+
+\section{Gli otto tipi base}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.6cm}@{}}
+\toprule
+\textbf{Tipo} & \textbf{Rappr. interna} & \textbf{Significato / stringhizzazione} \\
+\midrule
+\ic{int} & intero JS finito & numero intero; separatore migliaia opzionale. \\
+\ic{float} & numero JS finito & reale; arrotondato a \ic{constraints.precision}
+(default 2), separatore decimale \ic{format.decimalSep} (default \verb|,|). \\
+\ic{bool} & booleano JS & reso con \ic{trueLabel}/\ic{falseLabel}. \\
+\ic{string} & stringa JS & sé stessa. \\
+\ic{datetime} & epoch\,ms UTC & un \emph{istante} assoluto; formattato con
+\ic{format.pattern}. \\
+\ic{duration} & secondi (con segno) & un \emph{intervallo} di tempo; formattato
+con \ic{format.pattern}. \\
+\ic{object} & JSON sanificato & oggetto JSON; reso come \ic{JSON.stringify}. \\
+\ic{array} & JSON sanificato & sequenza ordinata; resa come \ic{JSON.stringify}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I nomi dei tipi sono anche \textbf{produttori} (Capitolo~\ref{ch:produttori}):
+\code|int(5)| costruisce un valore, mentre \code|int()| (senza argomento)
+restituisce un \emph{builder} di tipo. Questa doppia semantica è la stessa che
+regge \code|string()| in un descrittore di requirement e \code|string('x')| come
+costruzione di valore.
+
+\subsection{Format e constraints di default}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Tipo} & \textbf{\ic{format} (default)} & \textbf{\ic{constraints} (default)} \\
+\midrule
+\ic{int} & \verb|{ thousands: '' }| & --- \\
+\ic{float} & \verb|{ decimalSep: ',', thousands: '' }| & \verb|{ precision: 2 }| \\
+\ic{bool} & \verb|{ trueLabel:'true', falseLabel:'false' }| & --- \\
+\ic{string} & --- & --- \\
+\ic{datetime} & \verb|{ pattern:'YYYY-MM-DDTHH:mm:ssZ' }| & \verb|{ precision:'second' }| \\
+\ic{duration} & \verb|{ pattern:'HH:mm:ss' }| & \verb|{ precision:'second' }| \\
+\ic{object} & --- & --- \\
+\ic{array} & --- & \verb|{ minLen: 0 }| \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I \ic{constraints} riconosciuti includono: \ic{min}/\ic{max} (numerici, date,
+durate), \ic{minLen}/\ic{maxLen} (stringhe, array), \ic{precision} (float:
+decimali; datetime/duration: granularità), e \ic{values} (array: insieme dei
+valori ammessi come elementi --- la base per le liste a scelta,
+Capitolo~\ref{ch:requirement}).
+
+\begin{attenzione}
+I decimali di un \ic{float} hanno \textbf{una sola fonte di verità}:
+\ic{constraints.precision}. Il \ic{format} porta soltanto i separatori. Così due
+fonti non possono mai contraddirsi. Per mostrare tre decimali si scrive
+\code|float(x).constraints({ precision: 3 })|, non un campo di \ic{format}.
+\end{attenzione}
+
+\subsection{Dove vive il \texttt{default}}
+
+Il descrittore tipato prodotto dai builder ha forma
+\verb|{ type, format, constraints, default? }|: il \ic{default} è un campo di
+\textbf{pari livello}, \emph{non} sta dentro \ic{constraints} (i vincoli sono
+regole di validità; il default è un valore di ripiego). Lo si imposta col builder:
+
+\begin{lstlisting}
+string().default('N/D')
+int().constraints({ min: 0 }).default(0)
+\end{lstlisting}
+
+Sia \code|bind| sia \code|need| leggono il default per la \emph{stessa} via (il
+loro \ic{type}), come vedremo nella precedenza di risoluzione
+(Capitolo~\ref{ch:requirement}).
+
+\section{Il modello temporale}
+
+Due tipi rappresentano il tempo, e la distinzione è netta:
+
+\begin{itemize}
+  \item un \ic{datetime} è un \textbf{istante} assoluto (``il 20 giugno 2026 alle
+    10:00 UTC''). Internamente: epoch in millisecondi UTC.
+  \item una \ic{duration} è un \textbf{intervallo con segno} (``3 ore'', ``$-12$
+    giorni''). Internamente: un numero di secondi, eventualmente frazionario o
+    negativo.
+\end{itemize}
+
+\begin{nota}
+Tutta l'aritmetica temporale lavora in \textbf{UTC}; il \ic{locale} e il
+\ic{pattern} intervengono solo alla stringhizzazione. I componenti di una data
+(\code|d.year()|, \code|d.hour()|, \ldots) sono letti in UTC.
+\end{nota}
+
+\subsection{Perché mesi e anni non sono durate}
+
+Una \ic{duration} si misura \textbf{solo in unità di lunghezza costante}: secondi,
+minuti, ore, giorni, settimane. \textbf{Mesi e anni sono volutamente esclusi},
+perché non hanno durata fissa (un mese va da 28 a 31 giorni, un anno può essere
+bisestile). Ammetterli renderebbe l'aritmetica delle durate ambigua e
+\emph{impura} --- dipenderebbe dall'istante a cui sono ancorate. Per gli
+spostamenti ``di calendario'' si usa l'aritmetica su \ic{datetime}, che \emph{è}
+ancorata a un istante e può quindi essere calendario-consapevole.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l r@{}}
+\toprule
+\textbf{Unità di durata} & \textbf{Secondi} \\
+\midrule
+\ic{second} & 1 \\
+\ic{minute} & 60 \\
+\ic{hour} & 3\,600 \\
+\ic{day} & 86\,400 \\
+\ic{week} & 604\,800 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Poiché il costruttore \code|duration(...)| accetta \textbf{solo secondi}, le altre
+unità si esprimono con un prodotto leggibile: \code|duration(30 * 86400)| (30
+giorni), \code|duration(90 * 60)| (90 minuti). Semplice e senza casi speciali.
+
+\subsection{Precisione: granularità vs. visualizzazione}
+
+La \ic{datetime.precision} indica la \textbf{granularità significativa} della data
+(a cosa troncarla, fino a dove validarla); il \ic{pattern} indica \emph{come}
+visualizzarla. Sono concetti distinti. Le precisioni sono \textbf{ordinate dalla
+più grossolana alla più fine}:
+
+\begin{center}
+\ic{year} $<$ \ic{month} $<$ \ic{day} $<$ \ic{hour} $<$ \ic{minute} $<$ \ic{second}
+\end{center}
+
+Quando un'operazione combina due \ic{datetime}, la precisione del risultato è la
+\textbf{più fine} tra gli operandi: così non si perde mai informazione di
+granularità.
+
+\begin{attenzione}
+\ic{week} è un'unità di \emph{durata} ma \textbf{non} è una precisione di
+\ic{datetime}: la scala di precisione delle date è solo
+\ic{year}\ldots\ic{second}. I metodi \code|round(unit)|/\code|truncate(unit)| di
+una durata accettano qualunque unità di durata \emph{o} di precisione; il
+\code|truncate(precision)| di una data accetta solo una precisione.
+\end{attenzione}
+
+\subsection{Stringhizzazione di una durata}
+
+Il \ic{pattern} di una durata usa i token \ic{W} (settimane), \ic{D} (giorni),
+\ic{H}/\ic{HH} (ore), \ic{m}/\ic{mm} (minuti), \ic{s}/\ic{ss} (secondi). La regola
+chiave: \textbf{il token più a sinistra} (l'unità più grande del pattern)
+\textbf{accumula tutte le unità superiori}; i token successivi sono componenti
+modulari (zero-padded se il token è doppio). Su una durata di 50 ore:
+
+\begin{lstlisting}
+${ duration(50 * 3600).format({ pattern: 'HH:mm:ss' }) }    // -> "50:00:00"
+${ duration(50 * 3600).format({ pattern: 'D HH:mm:ss' }) }  // -> "2 02:00:00"
+\end{lstlisting}
+
+Nel primo caso \ic{HH} assorbe tutte le ore (50); nel secondo \ic{D} assorbe i
+giorni (2) e \ic{HH} porta il resto (2 ore).
+
+\section{Conversione dal mondo JavaScript}
+
+Al confine con l'host (valori iniziali, ritorni di capability/estensioni) i dati
+JS grezzi vengono \emph{inferiti} in valori tipati da \ic{fromJs}: un booleano
+diventa \ic{bool}, un intero \ic{int}, un non-intero \ic{float}, una stringa
+\ic{string}, un \ic{Date} un \ic{datetime}, un array un \ic{array}, un oggetto un
+\ic{object}. \ic{null}/\ic{undefined} e i numeri non finiti sono rifiutati.
+
+\begin{attenzione}
+\ic{fromJs} \textbf{non interpreta mai le stringhe come date}: \code|"2026-06-20"|
+resta una \ic{string}. Per ottenere un \ic{datetime} da una stringa serve il
+produttore esplicito \code|datetime('2026-06-20')| (o \code|date(pattern, testo)|).
+\end{attenzione}
+
+\chapter{Espressioni e operatori}
+\label{ch:espressioni}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Leggere e scrivere formule rispettando la tabella di precedenze.
+  \item Applicare correttamente l'aritmetica temporale e le regole ``niente
+    coercizione implicita''.
+  \item Usare gli operatori \emph{lazy} (\code|and|, \code|or|, \code|??|,
+    ternario) e la forma \code|match|.
+\end{itemize}
+\end{obiettivi}
+
+\section{La tabella di precedenze}
+
+Una \textbf{formula} è un'espressione: una combinazione di valori e operatori che
+produce un oggetto tipato. Gli operatori infissi, in ordine di precedenza
+\emph{decrescente} (in alto legano più forte):
+
+\begin{center}
+\small
+\begin{tabular}{@{}c l l p{6.2cm}@{}}
+\toprule
+\textbf{Liv.} & \textbf{Operatori} & \textbf{Assoc.} & \textbf{Note di tipo} \\
+\midrule
+1 & \ic{.} (accesso/metodo) & sx & postfisso (member/call) \\
+2 & \code|not x|, \code|-x| & dx & \code|not|: bool; \code|-|: int/float/duration \\
+3 & \code|*|\ \ \code|/| & sx & numeri; scalatura durate; \code|/| per 0 è errore \\
+4 & \code|+|\ \ \code|-| & sx & numeri, stringhe, date e durate \\
+5 & \code|<| \code|<=| \code|>| \code|>=| & sx & num/num, datetime/datetime, duration/duration \\
+6 & \code|==| \code|!=| \code|in| & sx & su tipi uguali; \code|x in array| è bool \\
+7 & \code|and| & sx & bool, \textbf{lazy} \\
+8 & \code|or| & sx & bool, \textbf{lazy} \\
+9 & \code|??| (coalesce) & dx & ``primo non vuoto'', \textbf{lazy} \\
+10 & \code|cond ? a : b| & dx & \ic{cond} bool, \textbf{lazy} sui rami \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Così \code|1 + 2 * 3| vale \ic{7} (il \code|*| lega più forte), e l'albero è
+\emph{unico}: la tabella rende la grammatica non ambigua. I livelli 1 e 2 non sono
+``infissi'' e sono gestiti strutturalmente dal parser (postfisso e prefisso).
+
+\begin{teoria}
+La \emph{lazy evaluation} di \code|and|/\code|or|/\code|??|/ternario/\code|match|
+non è solo un'ottimizzazione: evita di valutare rami non necessari e quindi
+\textbf{evita di generare \ic{Need} inutili}. È questo il meccanismo che realizza
+le \emph{fasi} (Capitolo~\ref{ch:requirement}): un requirement in un ramo non
+preso semplicemente non viene chiesto.
+\end{teoria}
+
+\section{Aritmetica numerica}
+
+\begin{itemize}
+  \item \code|int/float + - * /| producono un numero; se \emph{entrambi} gli
+    operandi sono \ic{int} il risultato è \ic{int}, altrimenti \ic{float}.
+  \item La \textbf{divisione è sempre \ic{float}} (anche \code|4 / 2| è
+    \ic{float}); dividere per zero è \ic{DIVISION\_BY\_ZERO}.
+  \item Gli unari: \code|not| solo su bool; \code|-| su int/float/duration (non su
+    datetime).
+\end{itemize}
+
+\section{Niente coercizione implicita}
+
+La concatenazione richiede due stringhe: \code|string + string| concatena, ma
+\code|string + <non-stringa>| è un \textbf{errore di tipo}. Per concatenare un
+numero lo si rende esplicito:
+
+\begin{lstlisting}
+${ 'a' + string(1) }   // -> "a1"
+${ 'a' + 1 }           // TYPE_ERROR (nessuna coercizione)
+\end{lstlisting}
+
+\section{Aritmetica temporale}
+
+È il cuore del modello. Tutte le operazioni si riducono ad aritmetica sui
+canonici (epoch\,ms e secondi):
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l@{}}
+\toprule
+\textbf{Operazione} & \textbf{Risultato} \\
+\midrule
+\code|datetime - datetime| & \ic{duration} (lo span, con segno) \\
+\code|datetime + duration| & \ic{datetime} (istante spostato) \\
+\code|datetime - duration| & \ic{datetime} \\
+\code|duration + datetime| & \ic{datetime} (\code|+| è commutativo) \\
+\code|duration + duration| & \ic{duration} \\
+\code|duration - duration| & \ic{duration} \\
+\code|duration * k|, \code|k * duration| & \ic{duration} (scalatura; \ic{k} numerico) \\
+\code|duration / k| & \ic{duration} (scalatura) \\
+\code|duration / duration| & \ic{float} (rapporto adimensionale) \\
+\code|datetime + datetime| & \textbf{errore} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{attenzione}
+Gli \ic{int} \textbf{non si mescolano mai} con i tipi temporali:
+\code|datetime + int|, \code|duration + int|, \code|int + duration| sono tutti
+errori. Per spostare una data o comporre una durata si passa \emph{sempre} da
+\code|duration(...)| --- così l'intero non è mai ambiguo (``secondi? giorni?'').
+\end{attenzione}
+
+Esempi ``a pipeline'' (i metodi si leggono da sinistra a destra):
+
+\begin{lstlisting}
+${ (deadline - now()).totalHours().round() }         // ore mancanti alla scadenza
+${ (fine - inizio).format({ pattern: 'HH:mm:ss' }) } // tempo-macchina HH:mm:ss
+${ (now() - ultimo_accesso) > duration(30 * 86400)
+     ? 'Account inattivo' : 'Attivo' }               // logica temporale
+\end{lstlisting}
+
+\section{Operatori lazy e la nozione di ``vuoto''}
+
+\code|and|/\code|or| sono booleani e in corto-circuito: \code|false and X| non
+valuta \ic{X}, \code|true or X| non valuta \ic{X}. Il ternario valuta solo il ramo
+preso. Il coalesce \code|a ?? b| restituisce \ic{a} se \emph{non vuoto}, altrimenti
+\ic{b}.
+
+\begin{nota}[Che cos'è ``vuoto'']
+Sono vuoti soltanto la \textbf{stringa vuota} \code|''|, l'\textbf{array vuoto}
+\code|[]| e l'\textbf{oggetto vuoto} \verb|{}|. \textbf{Non} sono vuoti \ic{0},
+\ic{false} né una durata di 0 secondi: sono valori legittimi. Perciò
+\code|0 ?? 99| vale \ic{0}, e \code|'' ?? 'fallback'| vale \code|'fallback'|.
+\end{nota}
+
+Questa definizione è ciò che fa funzionare correttamente i requirement opzionali:
+uno non soddisfatto si risolve nel valore vuoto del tipo, che \code|??| ``scavalca''.
+
+\section{La forma \texttt{match}}
+
+\code|match| è una forma primaria (non un operatore infisso):
+
+\begin{lstlisting}
+${ soggetto match {
+     valore1 => risultato1,
+     valore2 => risultato2,
+     *       => default
+} }
+\end{lstlisting}
+
+Confronta \ic{soggetto} con ciascun \ic{valoreK} (uguaglianza per tipo) e
+restituisce il primo \ic{risultatoK}; \code|*| è il default. È \textbf{zucchero}:
+il parser lo riscrive \emph{immediatamente} in una catena di ternari annidati,
+così i passi a valle (\ic{validate}, \ic{analyze}, \ic{run}) non conoscono
+\ic{match} come nodo speciale, e non si aggiunge potere di calcolo né rischio di
+non-terminazione.
+
+\begin{lstlisting}
+${ 2 match { 1 => 'one', 2 => 'two', * => 'other' } }   // -> "two"
+\end{lstlisting}
+
+\begin{attenzione}[Esaustività]
+Se il \code|*| manca e i casi non coprono \emph{dimostrabilmente} il dominio, il
+parser marca l'espressione e \ic{validate} emette \ic{NON\_EXHAUSTIVE\_MATCH}.
+L'unico dominio considerato ``chiuso'' è \ic{bool} con \emph{entrambi} i casi
+\code|true| e \code|false|: per quello, un \code|match| senza \code|*| è
+esaustivo. Su \ic{int}/\ic{string} il default è obbligatorio.
+\end{attenzione}
+
+\chapter{Produttori e trasformatori}
+\label{ch:produttori}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Distinguere \emph{produttori} (funzioni che creano) da \emph{trasformatori}
+    (metodi che trasformano).
+  \item Consultare il riferimento completo dei metodi builtin per tipo.
+  \item Comprendere la lettura ``a pipeline'' e la regola ``i metodi builtin
+    vincono''.
+\end{itemize}
+\end{obiettivi}
+
+\section{La regola di coerenza}
+
+\seebo\ adotta una regola unica su come si scrivono le operazioni:
+
+\begin{itemize}
+  \item \textbf{Produttori} $\rightarrow$ \textbf{funzioni o namespace}
+    \code|nome(...)|. Producono un valore \emph{da zero} (non hanno un
+    ``soggetto'' su cui operare).
+  \item \textbf{Trasformatori} $\rightarrow$ \textbf{metodi}
+    \code|valore.nome(...)|. Operano \emph{su} un valore esistente (il soggetto a
+    sinistra del punto).
+\end{itemize}
+
+Il criterio è semantico: \emph{chi crea} è una funzione, \emph{chi trasforma} è un
+metodo. Ne guadagnano la leggibilità (le trasformazioni si leggono da sinistra a
+destra, come una pipeline) e il parser (i metodi sono postfissi, senza precedenze
+da gestire).
+
+\section{Produttori builtin}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.2cm}@{}}
+\toprule
+\textbf{Produttore} & \textbf{Effetto} \\
+\midrule
+\code|int(v)| \code|float(v)| \code|bool(v)| \code|string(v)| & costruttori dei
+tipi base (conversioni esplicite; \code|string(x)| rende qualunque valore). \\
+\code|object(v)| \code|array(v)| & costruiscono i tipi composti da un JSON. \\
+\code|duration(sec)| & durata da un numero (con segno) di \emph{secondi}. \\
+\code|now()| & istante corrente (legge il \ic{clock} del contesto) $\rightarrow$ \ic{datetime}. \\
+\code|date(pattern, testo)| & interpreta \ic{testo} secondo \ic{pattern} $\rightarrow$ \ic{datetime}. \\
+\code|datetime(v)| & da epoch\,ms (numero) o da stringa ISO-8601. \\
+\code|need(descrittore)| & richiesta di un valore esterno (Capitolo~\ref{ch:requirement}). \\
+\code|bind(nome, tipo)| & binding di un valore puro. \\
+\code|prepare(need(...))| & dichiarazione lazy riusabile di un need o di un
+\code|action(...)|. \\
+\code|action({...})| & dichiarazione di un effetto (Capitolo~\ref{ch:actions}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}
+Solo \ic{now} e \ic{date} compaiono in \code|builtins.functions|; \ic{need},
+\ic{bind}, \ic{prepare}, \ic{action} sono \emph{forme} del linguaggio (parole
+riservate a sé stanti), non semplici produttori. I costruttori di tipo
+(\code|int|, \code|array|, \ldots) sono anch'essi produttori e parole riservate.
+\end{nota}
+
+Poiché \code|datetime(...)| e \code|date(...)| sono gli \emph{unici} modi di
+ottenere una data da una stringa, l'inferenza \ic{fromJs} non deve mai indovinare
+formati: separazione netta tra ``dato grezzo'' e ``parsing esplicito''. Il subset
+di token normativo per date è \ic{YYYY MM DD HH mm ss Z}.
+
+\section{Trasformatori (metodi): riferimento}
+
+Due metodi sono \textbf{universali} (su qualunque valore) e ritornano un
+\emph{nuovo} valore immutabile:
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.4cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Arità} & \textbf{Semantica} \\
+\midrule
+\code|x.format(obj)| & 1 & nuovo valore con quel \ic{format}. \\
+\code|x.constraints(obj)| & 1 & nuovo valore con quei \ic{constraints}; \emph{valida
+subito} (una violazione è \ic{CONSTRAINT\_VIOLATION}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Metodi di \texttt{string}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.2cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Arità} & \textbf{Semantica} \\
+\midrule
+\code|upper| \code|lower| \code|trim| & 0 & maiuscolo / minuscolo / rifila spazi. \\
+\code|reverse| & 0 & inverte (per code-point). \\
+\code|len| & 0 & lunghezza $\rightarrow$ \ic{int}. \\
+\code|left(n)| \code|right(n)| & 1 & primi / ultimi \ic{n} caratteri. \\
+\code|contains(s)| & 1 & sottostringa presente $\rightarrow$ \ic{bool}. \\
+\code|startsWith(s)| \code|endsWith(s)| & 1 & prefisso / suffisso $\rightarrow$ \ic{bool}. \\
+\code|remove(s)| & 1 & elimina tutte le occorrenze di \ic{s}. \\
+\code|replace(a, b)| & 2 & sostituisce tutte le \ic{a} con \ic{b} (non regex). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Metodi di \texttt{array}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.6cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Arità} & \textbf{Semantica} \\
+\midrule
+\code|len| & 0 & lunghezza $\rightarrow$ \ic{int}. \\
+\code|first| \code|last| & 0 & primo / ultimo elemento. \\
+\code|get(i)| & 1 & elemento in posizione \ic{i}. \\
+\code|reverse| & 0 & array invertito. \\
+\code|min| \code|max| \code|sum| & 0 & su elementi numerici (\ic{int} se tutti
+interi; \code|sum| di array vuoto $\rightarrow$ \ic{int(0)}). \\
+\code|avg| & 0 & media $\rightarrow$ \ic{float} (array vuoto: errore). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Metodi di \texttt{int} / \texttt{float}}
+
+Tutti ad arità 0: \code|abs| (preserva int/float), \code|round|, \code|floor|,
+\code|ceil| (i tre ritornano \ic{int}).
+
+\subsection{Metodi di \texttt{duration}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.4cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Arità} & \textbf{Semantica} \\
+\midrule
+\code|totalSeconds| \ldots \code|totalWeeks| & 0 & la durata intera in
+quell'unità $\rightarrow$ \ic{float}. \\
+\code|weeks| \code|days| \code|hours| \code|minutes| \code|seconds| & 0 &
+componenti ``da orologio'' $\rightarrow$ \ic{int} (segno sul componente più alto). \\
+\code|abs| \code|neg| & 0 & valore assoluto / opposto. \\
+\code|isNegative| & 0 & $\rightarrow$ \ic{bool}. \\
+\code|round(unit)| \code|truncate(unit)| & 1 & arrotonda / tronca all'unità. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I \textbf{totali} danno la durata intera in una unità (senza padding); i
+\textbf{componenti} la scompongono ``da orologio''. Su \code|duration(50 * 3600)|
+(50 ore):
+
+\begin{lstlisting}
+${ duration(50 * 3600).totalHours() }   // -> "50"   (totale)
+${ duration(50 * 3600).days() }         // -> "2"    (componente: 2 giorni...)
+${ duration(50 * 3600).hours() }        // -> "2"    (...e 2 ore di resto)
+\end{lstlisting}
+
+\subsection{Metodi di \texttt{datetime}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.4cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Arità} & \textbf{Semantica} \\
+\midrule
+\code|year| \code|month| \code|day| & 0 & componenti UTC $\rightarrow$ \ic{int}
+(\ic{month} 1--12). \\
+\code|hour| \code|minute| \code|second| & 0 & componenti UTC $\rightarrow$ \ic{int}. \\
+\code|truncate(precision)| & 1 & tronca all'unità di calendario indicata. \\
+\code|add(duration)| \code|sub(duration)| & 1 & forma-metodo di
+\code|datetime| $\pm$ \code|duration|. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{lstlisting}
+${ datetime('2026-06-20T10:30:45Z').truncate('month').day() }  // -> "1"
+${ datetime('2026-06-20').add(duration(86400)).day() }          // -> "21"
+\end{lstlisting}
+
+\subsection{Metodi di \texttt{object}}
+
+\code|o.get('chiave')| (accesso dinamico, proto-safe), \code|o.keys()|,
+\code|o.values()|. L'accesso a una chiave statica si scrive col punto:
+\code|o.campo|.
+
+\begin{nota}[I metodi builtin vincono]
+Un trasformatore custom (\code|defineFunction| con \ic{receiver}) omonimo di un
+metodo builtin \textbf{non viene mai raggiunto}: il builtin ha la precedenza. Il
+custom è consultato solo quando nessun metodo builtin combacia (esito
+\ic{UNKNOWN\_METHOD}). Un'arità sbagliata è \ic{ARITY\_MISMATCH}.
+\end{nota}
+
+\chapter{Requirement, Capability e Need}
+\label{ch:requirement}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Distinguere un \emph{Value} (dato posseduto) da un \emph{Requirement}
+    (dato descritto).
+  \item Conoscere il Requirement Descriptor, le capability e lo zucchero
+    \code|cap('id')|.
+  \item Padroneggiare \code|need|, \code|bind|, \code|prepare|: uso \emph{eager}
+    vs dichiarazione \emph{lazy}, scope statico e precedenza di risoluzione.
+\end{itemize}
+\end{obiettivi}
+
+Questa è la sezione che distingue \seebo\ da ogni template engine tradizionale.
+La affrontiamo per gradi.
+
+\section{Value contro Requirement}
+
+Non è l'utente che ``riempie variabili''. È il \textbf{template che dichiara dei
+Requirement} --- cose di cui ha bisogno per completarsi --- e qualcuno \emph{fuori}
+dal motore li soddisfa. La distinzione fondamentale:
+
+\begin{itemize}
+  \item un \textbf{Value} è un dato già posseduto dal motore (un literal, il
+    risultato di un calcolo puro, o un requirement già soddisfatto);
+  \item un \textbf{Requirement} è la \emph{descrizione} di un dato che serve,
+    \textbf{indipendentemente da chi e come} lo fornirà.
+\end{itemize}
+
+\begin{lstlisting}
+${ need({ id: 'cliente', type: object(), capability: 'crm', label: 'Cliente' }) }
+\end{lstlisting}
+
+Il template \textbf{non sa} se quel \ic{cliente} arriverà da un form, da una query
+SQL, da un ERP, da un LLM o da un tool MCP. Sa solo \emph{cosa} gli serve. Un
+requirement, oltre a produrre il proprio valore sul posto, lo \textbf{registra per
+nome} (\ic{id}): lo si può richiamare altrove con \code|${ cliente.nome }| senza
+ridichiararlo.
+
+\section{Il Requirement Descriptor}
+
+Un requirement si dichiara con un descrittore. \ic{id} e \ic{capability} sono
+obbligatori; il \ic{type} può essere ereditato dal contratto della capability;
+gli altri campi sono facoltativi.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l c p{8.4cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Obbl.} & \textbf{Significato} \\
+\midrule
+\ic{id} & sì & identificatore univoco (chiave nello stato). \\
+\ic{capability} & sì & la capacità che lo può soddisfare. \\
+\ic{type} & & il tipo atteso, come \emph{builder}; porta format, constraints,
+default. Se omesso, ereditato dal contratto della capability, altrimenti
+\code|string()|. \\
+\ic{label} & & etichetta breve per la UI (ereditabile). \\
+\ic{description} & & testo esteso / aiuto (ereditabile). \\
+\ic{optional} & & se \ic{true}, può restare non soddisfatto ($\rightarrow$ valore vuoto). \\
+\ic{priority} & & ordinamento/urgenza suggeriti al client. \\
+\ic{group} & & raggruppamento logico (una ``sezione'' del form). \\
+\ic{args} & & dati passati \emph{opachi} al risolutore; un valore può referenziare
+un altro binding (risolto prima). \\
+\ic{phase} & & \emph{(calcolato da \ic{analyze})} fase in cui diventa attivo. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}[Cardinalità = tipo]
+Non esiste un campo \ic{multiple}: la cardinalità si esprime con il \emph{tipo}. Un
+requirement che raccoglie più valori è di tipo \ic{array} (eventualmente con
+\ic{constraints.values}/\ic{maxLen}); uno scalare è di tipo base. Si riusa il
+sistema di tipi invece di aggiungere un meccanismo parallelo.
+\end{nota}
+
+\section{Capability}
+
+Una \textbf{Capability} è un risolutore registrato nell'engine che sa soddisfare i
+requirement di una certa categoria (\ic{crm} $\rightarrow$ ERP, \ic{user}
+$\rightarrow$ una domanda all'utente, \ic{weather} $\rightarrow$ una API meteo). Il
+template conosce solo la \emph{capacità}, non l'implementazione: si può sostituire
+l'intero backend senza toccare i template.
+
+\begin{attenzione}[Nessuna capability è builtin]
+\seebo\ non assume l'esistenza di \ic{user}, \ic{env} o altro. L'\textbf{intero set
+di capability è definito dall'applicazione} in \ic{createEngine}. Un requirement
+che cita una capability non registrata è un errore statico
+(\ic{UNKNOWN\_CAPABILITY}).
+\end{attenzione}
+
+\subsection{Zucchero: una capability è anche un produttore}
+
+Nel momento in cui una capability viene registrata, il suo nome diventa un
+\textbf{produttore}: invocarlo equivale a un \code|need| con quella
+\ic{capability} già impostata.
+
+\begin{lstlisting}
+crm({ id:'cliente', type:object(), label:'Cliente' })
+// == need({ id:'cliente', type:object(), capability:'crm', label:'Cliente' })
+\end{lstlisting}
+
+Lo zucchero è risolto \emph{staticamente} dal parser (il campo \ic{capability} è
+iniettato dal nome), quindi non intacca l'analizzabilità. Esiste anche la forma
+\textbf{stringa breve} \code|cap('id')|: una capability invocata con una semplice
+stringa usa quella stringa come \ic{id} del requirement.
+
+\begin{lstlisting}
+input('amount')   // == need({ id:'amount', capability:'input' })
+\end{lstlisting}
+
+\subsection{Contratto della capability}
+
+Una capability registrata con \code|defineCapability({ type, label, description, resolve })|
+dichiara un \textbf{contratto} statico che lo zucchero \code|cap('id')|
+\textbf{eredita}: il template non deve ripetere il tipo. In caso di conflitto
+\textbf{vince il template}. Una capability registrata come semplice funzione non
+porta contratto (il \ic{type} ripiega su \code|string()|).
+
+\section{Il Need: il terzo esito della valutazione}
+
+Durante la valutazione, ogni nodo produce \textbf{uno di tre esiti}:
+
+\begin{center}
+\ttfamily EvaluationResult = Value | Need | Error
+\end{center}
+
+Quando la valutazione incontra un requirement il cui valore \textbf{non è ancora
+nello stato}, non fallisce: produce un \textbf{Need} e \textbf{sospende} quel ramo.
+I \ic{Need} raccolti in una passata sono esattamente ciò che il mondo esterno deve
+fornire per far procedere la conversazione. È questo terzo esito --- non il valore,
+non l'errore, ma \emph{il bisogno} --- la vera innovazione del modello.
+
+\begin{teoria}[Requirement $\neq$ Dependency]
+Sono concetti diversi. Una \textbf{dependency} è una relazione \emph{interna} tra
+nodi (``il ramo \code|?:| la cui condizione usa \ic{paese}''). Un
+\textbf{requirement} è una richiesta \emph{verso l'esterno} (``serve
+\ic{cliente}''). Il \emph{Requirement Graph} (Capitolo~\ref{ch:analisi}) mette in
+relazione i requirement \emph{attraverso} le dipendenze: un arco
+\ic{cliente} $\rightarrow$ \ic{fattura} significa ``fattura serve solo in un ramo
+la cui condizione dipende da cliente''.
+\end{teoria}
+
+\section{Le tre dichiarazioni: \texttt{need}, \texttt{bind}, \texttt{prepare}}
+
+Tre forme dichiarano ciò che il template usa; tutte si leggono poi \textbf{per
+nome} (\code|${ nome }|), e un riferimento a un nome non dichiarato è
+\ic{UNDECLARED\_NAME}.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{10cm}@{}}
+\toprule
+\textbf{Forma} & \textbf{Ruolo} \\
+\midrule
+\code|need(descrittore)| & un requirement: valore che può arrivare durante la
+conversazione, via capability. Usato \textbf{inline} è \textbf{eager}: chiede il
+valore e lo renderizza dove appare. Sugar: \code|cap('id')|. \\
+\code|bind(nome, tipo)| & un \textbf{valore puro} con nome, noto \emph{prima} della
+valutazione (config, segreto, costante). Immutabile. Il secondo argomento è un
+type builder; accetta \emph{solo} un tipo, non \code|need|/\code|action|. \\
+\code|prepare(need(...))| & dichiara un need/action \textbf{lazy}, riusabile per il
+proprio \ic{id}. Non emette nulla e \textbf{non} attiva nulla nel punto del
+\code|prepare|: il need è chiesto, e l'action attivata, solo dove il loro \ic{id} è
+referenziato. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La distinzione tra \textbf{uso eager} e \textbf{dichiarazione lazy} è centrale:
+
+\begin{lstlisting}
+const engine = createEngine({ capabilities: { input: () => undefined } });
+
+// Eager: il need inline chiede `amount` qui e lo renderizza.
+engine.run(engine.start("${ input('amount') }"));  // status 'waiting', pending ['amount']
+
+// Lazy: prepare dichiara `amount`; e chiesto solo se/dove e referenziato.
+const tpl =
+  "${ prepare(input('amount')) }" +          // dichiarato, non ancora chiesto
+  "${ bind('vat', float().default(0.22)) }" + // un valore puro
+  '${ 1 == 2 ? amount : "n/a" }';             // amount in un ramo non preso => mai chiesto
+engine.run(engine.start(tpl));               // status 'completed' - nessun pending
+\end{lstlisting}
+
+\begin{attenzione}[\texttt{bind} non sospende mai]
+Un \code|bind| è un \emph{valore}, non un requirement. Se il suo nome è
+referenziato ma non è né in \ic{resolved} né dotato di \ic{default}, il risultato è
+un errore \textbf{fatale} \ic{CONSTRAINT\_VIOLATION} (``missing value for
+binding''): un binding di valore \emph{non} genera un \ic{Need}. Solo
+\code|need|/\code|prepare(need)| sospendono.
+\end{attenzione}
+
+\section{Scope statico e precedenza di risoluzione}
+
+Le dichiarazioni sono \textbf{raccolte staticamente} dal testo (e dai template
+inclusi), \emph{indipendentemente} dal fatto che il ramo in cui compaiono venga
+valutato. Di conseguenza un nome è visibile ovunque, e un identificatore non
+dichiarato è un errore statico.
+
+Un requirement \textbf{dichiarato ma non soddisfatto} si risolve con questa
+precedenza (dopo aver eventualmente ereditato il contratto della capability e
+risolto gli \ic{args} dinamici):
+
+\begin{enumerate}
+  \item se è già in \ic{resolved} $\rightarrow$ quel valore;
+  \item se il suo \ic{type} porta un \textbf{default} $\rightarrow$ vale il default;
+  \item altrimenti, se è \textbf{optional} $\rightarrow$ vale il \textbf{vuoto} del
+    tipo (\code|''|, \code|[]|, \verb|{}|);
+  \item altrimenti, finché è \emph{attivo}, genera un \textbf{Need} (e il documento
+    resta \ic{waiting}).
+\end{enumerate}
+
+Un requirement \textbf{non attivo} (ramo non preso) non genera mai \ic{Need}: si
+comporta come ai punti (2)/(3). In nessun caso la valutazione si interrompe.
+
+\begin{teoria}[Perché lo scope statico]
+Un modello \emph{flow-sensitive} (il requirement ``esiste'' solo se il ramo che lo
+dichiara viene eseguito) non è analizzabile staticamente: per sapere se un nome è
+definito bisognerebbe \emph{eseguire} il programma. Ciò contraddirebbe la purezza e
+impedirebbe ad \ic{analyze} di generare il form in modo affidabile. Lo scope
+statico preserva l'analizzabilità \emph{e} l'ergonomia ``dichiara una volta,
+riferisci per nome''; il caso ``mai chiesto'' è gestito dal valore vuoto invece che
+da un errore.
+\end{teoria}
+
+\section{Liste a scelta}
+
+Si ottengono come requirement con \ic{type} di tipo \ic{array} e il vincolo
+\ic{values}:
+
+\begin{lstlisting}
+${ need({ id:'provider', capability:'user', label:'Provider',
+     type: array().constraints({ values:['AWS','Azure','GCP'], minLen:1, maxLen:1 }) }) }
+// maxLen 1 => selezione singola; maxLen assente o >1 => multi-selezione
+\end{lstlisting}
+
+\ic{analyze} espone \ic{constraints.values} come campo derivato \ic{options}, così
+una UI può costruire un menù a tendina senza codificare le scelte. Anche questo
+riusa il sistema di tipi invece di introdurre tipi speciali.
+
+\section{Argomenti dinamici delle capability}
+
+Un valore di \ic{args} può dipendere da un altro binding: la dipendenza è risolta
+\textbf{prima} e il suo valore è inoltrato al provider. \ic{analyze} ordina i due
+requirement in fasi successive.
+
+\begin{lstlisting}
+// region si risolve in fase 1; il provider di city riceve la region risolta in fase 2.
+"${ prepare(input('region')) }" +
+  "${ prepare(need({ id:'city', capability:'geo', args:{ region: region } })) }${ city }"
+\end{lstlisting}
+
+Se gli \ic{args} referenziano un binding ancora irrisolto, il need resta
+\emph{bloccato} dietro quella dipendenza (e il \ic{Need} della dipendenza fluisce
+normalmente). Un ciclo tra dipendenze di \ic{args} è segnalato come
+\ic{CYCLE\_DETECTED}.
+
+\chapter{Macro: composizione e layout}
+\label{ch:macro}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Distinguere le due famiglie di macro e le loro fasi.
+  \item Comporre documenti con \code|ABSORB| e \code|MERGE|.
+  \item Rifinire il layout con \code|REMOVE_LINE|, \code|COLLAPSE|,
+    \code|REMOVE_LEFT|, \code|REMOVE_RIGHT|.
+\end{itemize}
+\end{obiettivi}
+
+Le macro sono operazioni a \textbf{livello di documento}, non valori. Due famiglie,
+eseguite in fasi diverse (Figura~\ref{fig:fasi}): gli \textbf{aggregatori} nel
+\emph{pre-pass} (\ic{expand}) e le macro di \textbf{layout} nel \emph{post-pass}
+(\ic{finalize}).
+
+\section{Aggregatori (pre-pass)}
+
+Compongono il documento \emph{prima} di valutare le formule, attingendo
+dall'insieme di template forniti all'engine:
+
+\begin{lstlisting}
+@{ABSORB('nome_template')}       // sostituisce lo slot col template indicato
+@{MERGE('pattern', 'separatore')} // concatena i template il cui nome combacia 'pattern'
+\end{lstlisting}
+
+\begin{itemize}
+  \item \code|ABSORB('name')| inlinea \emph{un} template (poi risolto a sua volta).
+  \item \code|MERGE('glob', sep?)| concatena, in \textbf{ordine stabile ordinato},
+    i template il cui nome combacia un \textbf{glob ancorato}; il separatore è
+    opzionale (default stringa vuota).
+\end{itemize}
+
+Il glob riconosce \emph{solo} \code|*| (qualsiasi sequenza) e \code|?| (un
+carattere); il pattern è ancorato all'intero nome. I requirement importati dai
+template inclusi confluiscono naturalmente nella tabella dei simboli, così la
+conversazione li vede tutti.
+
+\begin{teoria}[Glob, non regex]
+Le regex arbitrarie introducono il rischio di \textbf{ReDoS} (backtracking
+catastrofico), pericoloso lato client. Il glob ancorato si traduce in un automa
+\emph{lineare} senza backtracking: sicuro e deterministico.
+\end{teoria}
+
+\begin{nota}[Ricorsione limitata]
+Un template incluso può includere a sua volta, ma l'espansione è \textbf{limitata}:
+una \emph{catena di inclusione} rileva i cicli (\ic{INCLUSION\_CYCLE}) e un
+contatore di profondità applica \ic{limits.maxDepth} (\ic{DEPTH\_EXCEEDED}). Un
+template \textbf{mancante} si inlinea come stringa vuota (non è un errore).
+\end{nota}
+
+\begin{lstlisting}
+const res = await engine.stebo({
+  template: "@{ABSORB('header')}\nBody for ${ name }\nFooter: @{MERGE('foot_*', ' | ')}",
+  templates: { header: '=== Report ===', foot_1: 'Page 1', foot_2: 'Page 2' },
+  values: { name: 'Ada' },
+});
+// === Report ===
+// Body for Ada
+// Footer: Page 1 | Page 2
+\end{lstlisting}
+
+\section{Macro di layout (post-pass)}
+
+Ripuliscono il testo \emph{dopo} la risoluzione:
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.4cm}@{}}
+\toprule
+\textbf{Macro} & \textbf{Effetto} \\
+\midrule
+\code|@{REMOVE_LINE}| & rimuove l'intera riga che contiene il marcatore. \\
+\code|@{COLLAPSE}| & rimuove sé stesso; alla fine collassa le corse di righe vuote
+adiacenti in una sola. \\
+\code|@{REMOVE_LEFT(n)}| & rimuove sé stesso e \ic{n} caratteri alla sua sinistra. \\
+\code|@{REMOVE_RIGHT(n)}| & rimuove sé stesso e \ic{n} caratteri alla sua destra. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}[Marcatori posizionali]
+Una macro di layout è un \textbf{marcatore posizionale}. Durante l'esecuzione,
+\ic{run} riemette lo slot layout come il suo sorgente canonico \code|@{NOME(args)}|;
+\emph{oppure} una formula può \emph{produrre} quel testo letterale (per esempio la
+formula che emette \code|'@{REMOVE_LINE}'| quando un valore è vuoto). Le due forme
+sono identiche per il post-pass.
+\end{nota}
+
+\ic{finalize} scandisce il testo risolto, riconosce i marcatori noti e li applica
+\textbf{da sinistra a destra ricalcolando gli offset} dopo ogni modifica. Qualunque
+\code|@{...}| non riconosciuto è lasciato intatto, così i dati arbitrari dell'utente
+non vengono mai reinterpretati. Non c'è \ic{eval}; è deterministico.
+
+\begin{lstlisting}
+const res = await engine.stebo({
+  template: ['From: noreply@acme.io',
+             "${ note != '' ? 'Note: ' + note : '@{REMOVE_LINE}' }"].join('\n'),
+  values: { note: '' },
+});
+res.output; // 'From: noreply@acme.io'  (la riga della nota vuota e rimossa)
+\end{lstlisting}
+
+\begin{attenzione}[Conflitti di rimozione]
+Se due marcatori insistono sullo stesso intervallo, si applicano in ordine di
+posizione (sinistra$\rightarrow$destra) ricalcolando gli offset; una rimozione che
+cadrebbe \emph{dentro} un intervallo già rimosso è un \textbf{no-op} (non è un
+errore). Per rifilare i caratteri attorno al \emph{valore} di una formula (es.
+togliere le virgolette attorno a un JSON iniettato), si colloca il marcatore
+\textbf{adiacente} alla formula.
+\end{attenzione}
+
+Una macro di layout \emph{custom} (\code|defineMacro| con \ic{phase: 'finalize'})
+può portare un \code|apply(slot, doc)|: riceve \verb|slot = { name, args, start, end }|
+e \verb|doc = { text }|, e il valore restituito (coerciato a stringa) \textbf{sostituisce
+la porzione del marcatore} (Capitolo~\ref{ch:estensibilita}).
+
+\chapter{Azioni: effetti verso l'esterno}
+\label{ch:actions}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Dichiarare un effetto con \code|action({...})| e capire perché il core non
+    lo esegue mai.
+  \item Conoscere il ciclo di vita di un'azione e il piano d'azione.
+  \item Eseguire, simulare (dry-run) e compensare un piano via \ic{seebo/actions}.
+\end{itemize}
+\end{obiettivi}
+
+\code|action(...)| è il costrutto dichiarativo per gli \textbf{effetti esterni}. È
+il quarto membro del vocabolario di flusso-dati, accanto a \code|need| (input),
+\emph{capability} (risoluzione di dati) e \emph{function} (calcolo puro):
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.2cm}@{}}
+\toprule
+\textbf{Costrutto} & \textbf{Ruolo} \\
+\midrule
+\code|need(...)| & dichiara \textbf{input} mancanti che il template richiede. \\
+\emph{capability} & \textbf{risolve} dati esterni dentro il motore. \\
+\emph{function} & un calcolo \textbf{puro}, orientato al valore. \\
+\code|action(...)| & dichiara un \textbf{effetto} esterno che il motore può
+\emph{preparare}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{attenzione}[La regola cardinale]
+\textbf{Il core puro non esegue mai un'azione.} \ic{run}/\ic{analyze}/\ic{validate}
+si limitano a \emph{preparare} un \textbf{piano d'azione}
+(\code|run(state).actions|). L'esecuzione avviene \emph{solo} attraverso il livello
+esplicito \ic{seebo/actions}, invocato dall'applicazione host. Un test di
+conformità verifica che i moduli puri non importino mai il livello di esecuzione.
+\end{attenzione}
+
+\section{Dichiarare un'azione}
+
+Un'azione si dichiara dentro uno slot formula. Valuta alla \textbf{stringa vuota}
+--- non emette nulla nel documento, perché un effetto non è testo:
+
+\begin{lstlisting}
+${ action({
+  id: 'createIncidentTicket',
+  type: 'jira.createIssue',
+  input: {
+    project: 'AM',
+    summary: need({ id: 'summary', type: string(), capability: 'input' }),
+    description: need({ id: 'description', type: string(), capability: 'input' })
+  },
+  confirm: true,
+  environment: 'test'
+}) }
+\end{lstlisting}
+
+Un template può dichiarare \textbf{zero, una o molte} azioni. Il motore raccoglie
+solo quelle \textbf{raggiungibili}: un'azione dietro un ramo non preso non è mai
+raccolta (la stessa \emph{lazy gating} che governa \code|need|). Le azioni finiscono
+in un \ic{ActionPlan} in ordine di documento (a parità di \ic{id} vince la prima).
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.4cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Significato} \\
+\midrule
+\ic{id} (obbl.) & identificatore univoco nel run/piano. \\
+\ic{type} (obbl.) & nome del gestore (es. \ic{jira.createIssue}); nomi puntati ok. \\
+\ic{input} & oggetto di valori risolti; può referenziare \code|need(...)|. \\
+\ic{confirm} & \ic{true} $\Rightarrow$ l'azione va confermata prima di eseguire. \\
+\ic{environment} & ambiente bersaglio (\ic{test}, \ic{prod}, \ldots); default via policy. \\
+\ic{dryRun} & suggerisce una simulazione. \\
+\ic{idempotencyKey} & sovrascrive la chiave derivata. \\
+\ic{permissions} & permessi richiesti (uniti a quelli del gestore). \\
+\ic{retry} & \verb|{ attempts, backoffMs, strategy }| (solo a livello di esecuzione). \\
+\ic{metadata} & metadati liberi; i campi non riconosciuti confluiscono qui. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Il ciclo di vita di un'azione}
+
+Il \textbf{core} emette solo i primi tre stati; il \textbf{livello di esecuzione}
+possiede gli altri.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.6cm}@{}}
+\toprule
+\textbf{Stato} & \textbf{Significato} \\
+\midrule
+\ic{blocked} & un requirement di \ic{input} è ancora irrisolto; il \ic{Need} fluisce
+normalmente nel loop di sospensione/ripresa. \\
+\ic{ready} & tutti gli input risolti; eseguibile senza conferma. \\
+\ic{pendingConfirmation} & pronta, ma \ic{confirm} (o la policy) richiede conferma
+esplicita. \\
+\ic{executing} & il gestore è in esecuzione (esecutore). \\
+\ic{succeeded} / \ic{failed} & completata / fallita (eventualmente dopo retry). \\
+\ic{skipped} & non eseguita (policy nega, non confermata, \ldots). \\
+\ic{compensated} / \ic{compensationFailed} & annullata / annullamento fallito. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Eseguire un piano}
+
+Il gestore concreto si registra con \code|engine.defineAction|; l'esecuzione è
+esplicita e host-driven:
+
+\begin{lstlisting}
+import { createEngine } from 'seebo';
+import { executeActionPlan } from 'seebo/actions';
+
+const engine = createEngine();
+engine.defineAction('jira.createIssue', {
+  requiredPermissions: ['jira:issue:create'],
+  allowedEnvironments: ['test', 'preprod', 'prod'],
+  async dryRun(input) { return { preview: { project: input.project, summary: input.summary } }; },
+  async execute(input, context) {
+    const issue = await context.clients.jira.createIssue(input);
+    return { externalId: issue.key, url: issue.url };   // externalId -> receipt.externalId
+  },
+  async compensate(receipt, context) {
+    await context.clients.jira.closeIssue(receipt.externalId);
+    return { compensatedExternalId: receipt.externalId };
+  },
+});
+
+// Il core prepara il piano (non esegue). result.actions e l'ActionPlan.
+const result = engine.run(engine.start(template));
+
+const exec = await executeActionPlan(result.actions, {
+  engine, dryRun: false,
+  actor: currentUser, permissions: currentUser.permissions,
+  environment: 'test',
+  confirmedActions: ['createIncidentTicket'],   // richiesto perche confirm: true
+  clients: { jira: realJiraClient },
+  audit(event) { /* persist */ },
+});
+\end{lstlisting}
+
+\code|executeActionPlan| restituisce un \ic{ActionExecutionResult} --- una
+\ic{ActionReceipt} per azione più uno \ic{status} di piano
+(\ic{completed}/\ic{partial}/\ic{failed}/\ic{skipped}). Le API di esecuzione
+\textbf{non lanciano mai}: i fallimenti sono ricevute strutturate che portano un
+\ic{ActionError}.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{8.8cm}@{}}
+\toprule
+\textbf{Funzione (\ic{seebo/actions})} & \textbf{Scopo} \\
+\midrule
+\code|executeAction(action, ctx)| & esegue una singola azione preparata. \\
+\code|executeActionPlan(plan, ctx)| & esegue un piano in ordine di documento. \\
+\code|dryRunAction(action, ctx)| & simula una azione (mai \code|execute|). \\
+\code|dryRunActionPlan(plan, ctx)| & simula un piano. \\
+\code|compensateAction(receipt, ctx)| & annulla una azione riuscita. \\
+\code|compensateActionPlan(receipts, ctx)| & annulla in ordine \textbf{inverso}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Semantica di sicurezza}
+
+\begin{itemize}
+  \item \textbf{Conferma.} Nessuna azione che richiede conferma può eseguire se il
+    suo \ic{id} non è in \ic{confirmedActions}. La policy può \emph{forzare} la
+    conferma per alcuni/tutti i tipi.
+  \item \textbf{Dry-run.} \code|dryRun*| chiama il metodo \ic{dryRun} del gestore
+    (mai \ic{execute}); un gestore senza \ic{dryRun} produce una ricevuta simulata
+    deterministica. Tre fasi ben distinte: anteprima del template, dry-run,
+    esecuzione reale.
+  \item \textbf{Idempotenza.} Ogni azione porta una \ic{idempotencyKey} stabile: di
+    default un SHA-256 (128 bit) sul JSON canonico di
+    \verb|{ id, type, environment, input }| (input ordinato per chiave), costante
+    tra run e retry.
+  \item \textbf{Permessi e policy (fail-closed).} Prima di ogni gestore l'esecutore
+    verifica, in ordine: allow/deny per tipo, regole d'ambiente, ambienti del
+    gestore, unione dei permessi. Un diniego è una ricevuta \ic{skipped}.
+  \item \textbf{Compensazione.} È fornita dal gestore (\code|compensate|); \seebo\
+    non implementa un rollback universale. Un gestore senza \ic{compensate} produce
+    \ic{COMPENSATION\_UNSUPPORTED}.
+  \item \textbf{Audit e redazione.} L'audit è basato su hook (\code|audit(event)|);
+    il core non scrive mai su console. L'hook \code|redact| maschera input/output
+    prima che appaiano nelle ricevute/audit.
+\end{itemize}
+
+\begin{nota}
+\ic{analyze(template).actions} elenca ogni azione staticamente rilevata in ordine
+di documento con metadati best-effort (\ic{id}, \ic{type}, \ic{environment},
+\ic{requiresConfirmation}, \ic{permissions}, \ic{dynamicInput}, \ic{duplicateId}).
+\ic{validate} segnala \ic{INVALID\_ACTION}, \ic{DUPLICATE\_ACTION\_ID},
+\ic{UNKNOWN\_ACTION\_TYPE} e \ic{POLICY\_FORBIDDEN}.
+\end{nota}
+
+%##############################################################################
+\part{L'API e la pratica}
+%##############################################################################
+
+\chapter{createEngine e la configurazione}
+\label{ch:config}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Costruire un motore configurato e capire perché ``lega'' il vocabolario
+    una volta sola.
+  \item Conoscere ogni campo di \ic{EngineConfig} e i relativi default.
+  \item Governare le capability con la \ic{policy} (allow-list, fiducia, audit,
+    redazione).
+\end{itemize}
+\end{obiettivi}
+
+\section{Perché \texttt{createEngine}}
+
+\code|createEngine(config)| costruisce un motore \textbf{configurato}: lega una
+volta sola tipi, funzioni, macro, librerie, capability e politiche, e restituisce
+un oggetto i cui metodi sono già ``consapevoli'' della configurazione. È anche il
+punto in cui si realizza l'\textbf{inversione delle dipendenze}: il motore non sa
+\emph{da dove} vengano i dati, lo dicono le \ic{capabilities}.
+
+\begin{lstlisting}
+import { createEngine, builtins } from 'seebo';
+
+const engine = createEngine({
+  ...builtins.all,                 // vocabolario standard (opzionale: sempre attivo)
+  capabilities: {
+    user: () => undefined,         // interattiva: i suoi Need tornano al chiamante
+    crm:  (req) => lookup(req.id),  // una capability "dato"
+  },
+  locale: 'it-IT',
+});
+\end{lstlisting}
+
+\code|createEngine| \textbf{fallisce subito} (\ic{EngineConfigError}) se un nome è
+riservato o duplicato: la \emph{name governance} gira per prima
+(Sezione~\ref{sec:governance}).
+
+\section{I campi di \texttt{EngineConfig}}
+
+Tutti i campi sono opzionali; \code|normalizeConfig| applica i default.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{6.6cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Default} & \textbf{Note} \\
+\midrule
+\ic{types} & \ic{[]} & tipi custom (+ nomi builtin, ignorati). \\
+\ic{functions} & \ic{[]} & produttori/trasformatori. \\
+\ic{macros} & \ic{[]} & macro aggregatore/layout. \\
+\ic{libraries} & \ic{[]} & una stringa \emph{abilita} solo un namespace. \\
+\ic{capabilities} & \verb|{}| & l'intero set; funzione risolutore o descrittore
+\code|defineCapability|. \\
+\ic{actions} & \ic{[]} & gestori d'azione (eseguiti solo via \ic{seebo/actions}). \\
+\ic{policy} & vedi sotto & allow-list, fiducia, audit, redazione, retry. \\
+\ic{locale} & \ic{'en-US'} & locale di formattazione (BCP-47). \\
+\ic{clock} & \code|() => new Date()| & orologio iniettato per \code|now()|. \\
+\ic{seed} & --- & riservato (inutilizzato in v1). \\
+\ic{limits} & \ic{DEFAULT\_LIMITS} & limiti di risorsa per fase (Capitolo~\ref{ch:sicurezza}). \\
+\ic{delimiters} & \ic{DEFAULT\_DELIMITERS} & \verb|{ formula:'$', comment:'#', macro:'@', open:'{', close:'}' }|. \\
+\ic{optimizations} & \ic{DEFAULT\_OPTIMIZATIONS} & solo \ic{astCache} è implementato. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\ic{DEFAULT\_OPTIMIZATIONS} è \verb|{ lazyParse, astCache, stream, objectPool }|,
+tutte \ic{false}: nella v1 solo \ic{astCache} è implementato (cache trasparente di
+parse/analyze), le altre tre sono accettate ma inerti.
+
+\section{La \texttt{policy}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.6cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Effetto} \\
+\midrule
+\ic{allowedTypes} & allow-list statica; un costruttore di tipo fuori lista è
+\ic{POLICY\_FORBIDDEN}. \\
+\ic{allowedFunctions} & allow-list statica per produttori/funzioni di
+libreria/trasformatori custom. \\
+\ic{allowedCapabilities} & allow-list dura; verificata in \ic{validate} e nel driver. \\
+\ic{trustLevel} & livello di fiducia del template (default \ic{'untrusted'}). \\
+\ic{capabilityRules} & regole per-capability, verificate \textbf{prima} che il
+provider giri. \\
+\ic{redact} & id di capability i cui valori sono mascherati in diagnostiche/audit. \\
+\ic{audit} & hook per ogni risoluzione di capability (senza il valore in chiaro).
+Default: noop. \\
+\ic{retry} & \verb|{ attempts, backoffMs }|. Default: nessun retry. \\
+\ic{action} & controlli sulle azioni (Capitolo~\ref{ch:actions}). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Una \ic{CapabilityRule} è \verb|{ allowFrom?, audit? }|:
+\ic{allowFrom: 'trusted'} vieta la capability a un template non fidato
+(\ic{CAPABILITY\_FORBIDDEN}); \ic{audit: false} la esclude dall'hook di audit.
+
+\begin{lstlisting}
+const engine = createEngine({
+  capabilities: { secrets: () => readSecret() },
+  policy: {
+    trustLevel: 'untrusted',
+    capabilityRules: { secrets: { allowFrom: 'trusted', audit: true } },
+    redact: ['secrets'],  // i valori segreti sono mascherati nei log
+  },
+});
+// ${ need({ id:'k', type:string(), capability:'secrets' }) }
+//   -> status 'failed' con CAPABILITY_FORBIDDEN (template untrusted)
+\end{lstlisting}
+
+Portare il template a \ic{trustLevel: 'trusted'} consente la capability.
+Indipendentemente, \ic{allowedCapabilities} è una allow-list dura: una capability
+non in lista è sempre \ic{CAPABILITY\_FORBIDDEN}.
+
+\section{Determinismo: iniettare l'orologio}
+
+I produttori non deterministici (\code|now()|) leggono un \ic{clock} dal contesto;
+fissarlo rende l'output riproducibile (anteprime coerenti, test):
+
+\begin{lstlisting}
+const engine = createEngine({ clock: () => new Date('2026-06-26T10:00:00Z') });
+(await engine.stebo({ template: '${ now().year() }' })).output; // '2026'
+\end{lstlisting}
+
+\section{Name governance}
+\label{sec:governance}
+
+Produttori, tipi builtin, librerie e capability \textbf{condividono uno spazio dei
+nomi} (tutti invocati come \code|nome(...)|); le macro sono uno spazio separato; i
+trasformatori sono indicizzati per tipo del receiver. \code|createEngine| lancia un
+\ic{EngineConfigError} quando un nome è invalido:
+
+\begin{itemize}
+  \item \ic{RESERVED\_NAME} --- il nome è una parola riservata del linguaggio
+    (\code|and|, \code|match|, \code|array|, \code|now|, \code|ABSORB|, \ldots).
+  \item \ic{NAME\_CONFLICT} --- il nome è già preso nel suo spazio (es. una funzione
+    e una capability entrambe \ic{foo}).
+\end{itemize}
+
+Le 27 parole riservate sono: gli operatori/forme \code|and or not in match|; i
+literali \code|true false|; gli otto tipi builtin; i produttori \code|now date|;
+le forme \code|need bind prepare action|; e le sei macro builtin.
+
+\chapter{Analisi statica: tokenize, parse, validate, analyze}
+\label{ch:analisi}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Usare i quattro metodi statici e sapere quale lancia e quale accumula.
+  \item Leggere una \ic{Diagnostic} e conoscere i codici che \ic{validate} può
+    emettere.
+  \item Interpretare l'output di \ic{analyze}: requirement, grafo, piano, metriche.
+\end{itemize}
+\end{obiettivi}
+
+Quattro metodi sono \textbf{sincroni e puri} (dipendono solo dal template e dalla
+config). Sono il modo più rapido di capire un template \emph{senza eseguirlo}.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{7.4cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Ritorna} & \textbf{Comportamento} \\
+\midrule
+\code|tokenize(t)| & \ic{Token[]} & stream piatto, \textbf{tollerante agli errori}
+(non lancia mai). \\
+\code|parse(t)| & \ic{Document} & AST; \textbf{lancia} un errore \ic{SYNTAX\_ERROR}
+con posizione su input malformato. \\
+\code|validate(t)| & \ic{Diagnostic[]} & diagnostiche statiche (vuota = valido);
+\textbf{non lancia mai}. \\
+\code|analyze(t)| & \ic{Analysis} & piano da ``compilatore'': requirement, grafo,
+metriche. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{tokenize e parse}
+
+\code|tokenize| serve all'evidenziazione di sintassi nell'editor anche mentre si
+scrive: davanti a uno slot incompleto emette i token raccolti finora e prosegue.
+\code|parse| costruisce l'AST (una sequenza di nodi testo/slot; ogni slot-formula
+contiene l'albero dell'espressione) e \emph{lancia} su sintassi malformata.
+
+\begin{lstlisting}
+try {
+  engine.parse('${ 1 + }');
+} catch (e) {
+  e.code;     // 'SYNTAX_ERROR'
+  e.position; // { start, end } offset nel sorgente
+}
+\end{lstlisting}
+
+\section{validate}
+
+\code|validate| restituisce \emph{tutte} le diagnostiche statiche in una volta e
+non lancia mai: un template malformato diventa una singola diagnostica
+\ic{SYNTAX\_ERROR}. Una \ic{Diagnostic} ha questa forma:
+
+\begin{lstlisting}
+{ code, severity: 'error'|'warning'|'info',
+  phase: 'createEngine'|'tokenize'|'parse'|'validate'|'analyze'|'run'|'driver',
+  recoverable, message, position?: { start, end }, data? }
+\end{lstlisting}
+
+Il \ic{code} è un identificatore \textbf{stabile} (contratto pubblico): non
+switchare mai sul \ic{message}. I codici che \code|validate| può emettere:
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.2cm}@{}}
+\toprule
+\textbf{Codice} & \textbf{Causa} \\
+\midrule
+\ic{UNDECLARED\_NAME} & riferimento a un nome non dichiarato. \\
+\ic{UNKNOWN\_FUNCTION} & produttore ignoto o namespace non abilitato. \\
+\ic{UNKNOWN\_METHOD} & metodo assente sul tipo del receiver inferito. \\
+\ic{ARITY\_MISMATCH} & numero di argomenti sbagliato. \\
+\ic{TYPE\_ERROR} & violazione di tipo di un operatore/argomento provabile. \\
+\ic{NON\_EXHAUSTIVE\_MATCH} & \code|match| senza \code|*| su dominio aperto. \\
+\ic{UNKNOWN\_CAPABILITY} & \code|need| cita una capability non registrata. \\
+\ic{POLICY\_FORBIDDEN} & tipo/funzione/capability/azione/ambiente escluso da policy. \\
+\ic{INVALID\_ACTION} & descrittore \code|action| malformato. \\
+\ic{DUPLICATE\_ACTION\_ID} & id d'azione duplicato. \\
+\ic{UNKNOWN\_ACTION\_TYPE} & nessun gestore per il tipo d'azione. \\
+\ic{SYNTAX\_ERROR} & sintassi malformata (da \code|parse|). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{teoria}[Il type inferencer conservativo]
+I controlli di tipo di \code|validate| sono guidati da un \textbf{inferitore
+statico conservativo} che rispecchia, a livello di tipo, i metodi e gli operatori
+del valutatore. Il suo reticolo è ``gli otto tipi base $+$ \ic{unknown}''; tutto ciò
+che non è dimostrabile (accesso a membro, tipi custom, risultati di libreria,
+riferimenti non tipati) collassa a \ic{unknown}, e qualunque operazione che
+coinvolge \ic{unknown} \emph{non} viene mai segnalata. Così \code|validate| segnala
+solo ciò che può \emph{dimostrare} e \textbf{non produce mai falsi positivi}.
+\end{teoria}
+
+\section{analyze}
+
+Qui \seebo\ si comporta quasi come un \textbf{compilatore}: non produce solo
+l'elenco dei requirement, ma un piano completo. L'oggetto \ic{Analysis}:
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.2cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Significato} \\
+\midrule
+\ic{analysisVersion} & versione del contratto (\ic{1} in v1). \\
+\ic{ast} & l'AST (contratto pubblico). \\
+\ic{requirements} & i requirement dichiarati, arricchiti di \ic{phase} e
+\ic{options}. \\
+\ic{requirementGraph} & archi \ic{A} $\rightarrow$ \ic{B} (B attivo solo in un ramo
+che dipende da A). \\
+\ic{executionPlan} & fasi: quali requirement diventano attivi e quando. \\
+\ic{capabilitiesUsed} & capability distinte usate. \\
+\ic{staticValues} & slot già risolvibili ``a freddo'' (formule pure), per indice. \\
+\ic{deterministic} & \ic{false} quando compaiono \code|now()|/\ic{fake.*} liberi. \\
+\ic{streamability} & \ic{full} / \ic{partial} / \ic{buffered}. \\
+\ic{potentialCycles} & cicli rilevati staticamente. \\
+\ic{maxPhases} & profondità del grafo (capata da \ic{limits.maxPhases}). \\
+\ic{worstCaseRequirements} & requirement sul cammino peggiore. \\
+\ic{actions} & azioni staticamente rilevate, in ordine di documento. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}[La fase è il cammino più lungo]
+La \textbf{fase} di un requirement è la lunghezza del cammino più lungo dalle
+radici fino ad esso: i requirement incondizionati sono in fase 1; un requirement
+dichiarato in un ramo la cui condizione dipende da \ic{A} ha fase
+$1 + \text{fase}(A)$. Questo è il pendant statico delle fasi della conversazione.
+\end{nota}
+
+\begin{lstlisting}
+const a = engine.analyze(`
+  ${ need({ id:'paese', capability:'user', type: array().constraints({ values:['IT','US'] }) }) }
+  ${ paese == 'IT'
+       ? need({ id:'citta', capability:'user', type: string() })
+       : '' }
+`);
+// requirements: [{ id:'paese', phase:1, options:['IT','US'] },
+//                { id:'citta', phase:2 }]
+// requirementGraph: { edges: [ ['paese','citta'] ] }
+// executionPlan: [ {phase:1,requirements:['paese']}, {phase:2,requirements:['citta']} ]
+// capabilitiesUsed: ['user'];  maxPhases: 2
+\end{lstlisting}
+
+\begin{teoria}[A cosa serve la ricchezza di \texttt{analyze}]
+Un editor può mostrare avvisi come ``questo template richiederà al massimo 7 passi
+di interazione'', ``richiede la capability \ic{crm}'', oppure ``non può terminare:
+il grafo contiene un ciclo'' --- il tutto \textbf{senza eseguire nulla} e senza dati
+reali. \ic{streamability} classifica staticamente quanto il documento è idoneo
+all'output incrementale.
+\end{teoria}
+
+\chapter{Esecuzione e orchestrazione}
+\label{ch:esecuzione}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Guidare la macchina a stati con \code|start| e \code|run|, leggendo lo
+    \ic{PublicState}.
+  \item Usare il driver asincrono (\code|drive|) e \code|stopOn| per le capability
+    interattive.
+  \item Orchestrare con \code|stebo| (expand $\rightarrow$ drive $\rightarrow$
+    finalize).
+\end{itemize}
+\end{obiettivi}
+
+\section{La macchina a stati pura}
+
+L'esecuzione è una \textbf{macchina a stati pura}. Il cuore è \code|run|, che riceve
+uno stato e ne restituisce uno nuovo, \textbf{senza I/O}: valuta il più possibile e
+raccoglie i \ic{Need} che non sa soddisfare.
+
+\begin{lstlisting}
+engine.start(template, initialValues?) -> PublicState   // stato iniziale (status:'running')
+engine.run(state) -> PublicState                         // un passo: puro, sincrono
+\end{lstlisting}
+
+Lo \ic{PublicState} è l'\textbf{unica} forma da serializzare:
+
+\begin{lstlisting}
+{
+  stateVersion: number,
+  template: string,                     // il SORGENTE: canonico e portabile
+  resolved: Record<string, Value>,      // requirement soddisfatti, per id
+  pending:  RequirementDescriptor[],    // Need dell'ultima passata
+  phase:    number,                     // contatore, parte da 0, +1 a ogni run
+  status:   'running'|'waiting'|'completed'|'failed',
+  output?:  string,                     // presente se status === 'completed'
+  actions?: ActionPlan,                 // azioni attive preparate in questo passo
+  diagnostics?: Diagnostic[],           // presente se status === 'failed'
+}
+\end{lstlisting}
+
+\begin{attenzione}[Non esiste lo stato ``Created'']
+Concettualmente parliamo di \emph{Created} (Capitolo~\ref{ch:modello}), ma il valore
+concreto dell'enum \ic{Status} è \verb|{ RUNNING, WAITING, COMPLETED, FAILED }|:
+\code|start| produce direttamente \ic{status: 'running'}. Non c'è un valore
+\ic{'created'}.
+\end{attenzione}
+
+Semantica di \code|run|: valuta tutti i nodi i cui ingressi sono in \ic{resolved};
+ogni requirement non risolto e \emph{attivo} confluisce in \ic{pending}; se
+\ic{pending} è vuoto $\Rightarrow$ \ic{completed} con \ic{output}; se ci sono
+\ic{Need} $\Rightarrow$ \ic{waiting}; un errore fatale $\Rightarrow$ \ic{failed} con
+\ic{diagnostics}. \code|run| \textbf{non} chiama capability e \textbf{non} fa I/O.
+
+\subsection{Il ciclo esplicito}
+
+Il driver (qualsiasi codice host) chiude il ciclo soddisfacendo i \ic{Need}:
+
+\begin{lstlisting}
+let state = engine.start(template, { /* eventuali valori iniziali */ });
+while (state.status === 'waiting') {
+  const nuovi = await soddisfa(state.pending);   // -> Record<id, valore>
+  state = engine.run({ ...state, resolved: { ...state.resolved, ...nuovi } });
+}
+if (state.status === 'completed') console.log(state.output);
+\end{lstlisting}
+
+\begin{teoria}[Terminazione e ripresa]
+L'insieme dei requirement \emph{attivi} cresce in modo monotòno e l'universo è
+finito $\Rightarrow$ il ciclo raggiunge un punto fisso in un numero finito di passi.
+La strategia di ripresa della v1 è la più semplice: \textbf{rivalutare l'intero
+documento a ogni \code|run|}. È lecita perché il valutatore è puro e idempotente:
+con gli stessi \ic{resolved} produce lo stesso esito. Continuation e checkpoint sono
+ottimizzazioni facoltative, invisibili al chiamante.
+\end{teoria}
+
+\begin{nota}[Lo stato è serializzabile]
+Lo \ic{PublicState} è un POJO: \code|JSON.parse(JSON.stringify(state))| lo
+round-trip senza perdite. Lo si può salvare in Redis/DB/file e riprendere altrove,
+anche in un altro processo o un'altra release del motore. Un \ic{stateVersion} più
+vecchio è migrato in sequenza; uno \emph{più nuovo} è rifiutato con
+\ic{UNSUPPORTED\_STATE\_VERSION} (Capitolo~\ref{ch:versionamento}).
+\end{nota}
+
+\section{Il driver asincrono}
+
+Spesso molti \ic{Need} si soddisfano da soli (un \ic{crm}, un \ic{secrets}): il
+\textbf{driver} lo fa automaticamente, interrogando le capability registrate.
+\code|drive(stateOrTemplate, { stopOn })| chiude il ciclo e si ferma
+(\ic{status: 'waiting'}) solo sui \ic{Need} che vanno raccolti ``fuori'' (es. la
+capability \ic{user}), restituendoli al chiamante.
+
+Il driver classifica ogni esito di un provider in \textbf{quattro} categorie
+(\ic{ProviderOutcome}):
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.6cm}@{}}
+\toprule
+\textbf{Esito} & \textbf{Quando / azione} \\
+\midrule
+\ic{Resolved} & il provider ritorna un valore valido $\rightarrow$ entra in
+\ic{resolved}; al prossimo \code|run| il Need sparisce. \\
+\ic{Unresolved} & il provider ritorna \code|undefined| (``non io'') $\rightarrow$ il
+Need resta in \ic{pending} (es. capability interattiva). \\
+\ic{ProviderError} & il provider lancia, rifiuta la Promise o supera il timeout
+$\rightarrow$ \ic{CAPABILITY\_ERROR}. \\
+\ic{InvalidValue} & il valore viola \ic{type}/\ic{constraints} $\rightarrow$
+\ic{CAPABILITY\_INVALID\_VALUE}; il dato non entra mai in \ic{resolved}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{teoria}[Perché distinguere \texttt{undefined} dall'errore]
+\code|undefined| \emph{non} è un errore: è il modo legittimo di dire ``non rispondo
+io'' (capability interattive, cache miss). Errore del provider, valore invalido e
+mancata risposta hanno conseguenze diverse --- fallire, ritentare, o rimandare
+all'utente --- e tenerli distinti evita che un \code|undefined| venga scambiato per
+un guasto o che un dato malformato entri nello stato. La validazione del valore
+ritornato è \textbf{sempre} applicata: una capability non può iniettare un dato che
+il sistema di tipi rifiuterebbe.
+\end{teoria}
+
+Prima di invocare un provider, il driver applica la \ic{policy}: allow-list
+(\ic{allowedCapabilities}), regole di fiducia (\ic{allowFrom}) e, dopo, l'hook di
+audit. Il retry è disattivato di default.
+
+\subsection{Risoluzione interattiva multi-turno}
+
+\begin{lstlisting}
+const engine = createEngine({
+  capabilities: {
+    crm:  (req) => ({ order: { id: 42 } })[req.id],  // non interattiva (dato)
+    user: () => undefined,                            // interattiva (host UI)
+  },
+});
+const template =
+  "Order ${ crm({ id:'order', type:object() }).id } for " +
+  "${ user({ id:'name', label:'Customer name', type:string() }) }.";
+
+// Primo giro: risolvi tutto tranne `user`, che ci viene restituito.
+let state = await engine.drive(template, { stopOn: ['user'] });
+state.status;  // 'waiting'
+state.pending; // [{ id:'name', capability:'user', label:'Customer name', type:{...} }]
+
+// Mostra i pending come form, raccogli la risposta, poi riprendi.
+state = await engine.drive(
+  { ...state, resolved: { ...state.resolved, name: 'Ada' } },
+  { stopOn: ['user'] }
+);
+state.status;  // 'completed'
+state.output;  // 'Order 42 for Ada.'
+\end{lstlisting}
+
+\begin{attenzione}[\texttt{maxPhases} conta i giri del driver]
+\ic{limits.maxPhases} (default 10) limita i \textbf{giri di risoluzione del driver},
+\emph{non} il contatore \ic{state.phase} (che cresce a ogni \code|run|). I due
+divergono. Un provider assente non è un fallimento: il Need resta semplicemente
+pendente.
+\end{attenzione}
+
+\section{L'orchestratore \texttt{stebo}}
+
+Le macro vivono in fasi separate (Figura~\ref{fig:fasi}). L'API le espone sia
+singolarmente sia tramite la convenience \code|stebo|, che incatena
+\emph{expand} $\rightarrow$ \emph{drive} $\rightarrow$ \emph{finalize}:
+
+\begin{lstlisting}
+const composed = await engine.expand({ template, templates }); // (a) pre-pass aggregatori
+// (b) esecuzione multi-fase (driver) su `composed`
+const output = engine.finalize(resolvedText);                  // (c) post-pass layout
+
+// Convenience: incatena (a) -> (b) -> (c), gestendo la conversazione.
+const res = await engine.stebo({ template, templates, values });
+\end{lstlisting}
+
+I \ic{values} pre-popolano \ic{resolved} (i Need già forniti non riappaiono).
+\code|finalize| viene applicato \emph{solo} se il drive arriva a \ic{completed} con
+un \ic{output} stringa; se resta \ic{waiting} o \ic{failed}, non si rifinisce nulla.
+
+\begin{nota}[Debug]
+Quando \code|stebo|/\code|run| ritorna \ic{status: 'failed'}, la causa è in
+\ic{state.diagnostics} (ciascuna con \ic{code}, \ic{message}, \ic{position?},
+\ic{data?}). Uno stato \ic{waiting} espone i requirement aperti in \ic{state.pending}.
+I metodi statici (\code|tokenize|, \code|parse|, \code|validate|, \code|analyze|)
+sono il modo più rapido di capire un template senza eseguirlo.
+\end{nota}
+
+\chapter{Estensibilità: le fabbriche \texttt{define*}}
+\label{ch:estensibilita}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Aggiungere vocabolario (tipi, funzioni, librerie, capability, macro,
+    azioni) senza toccare il core.
+  \item Capire il modello di sicurezza delle estensioni (codice host fidato, valori
+    JS semplici).
+\end{itemize}
+\end{obiettivi}
+
+Tutte le estensioni si creano con una fabbrica \code|define*| che restituisce un
+\textbf{descrittore congelato}, poi passato a \code|createEngine|. I nomi sono
+validati/riservati alla costruzione del motore.
+
+\begin{teoria}[Modello di sicurezza]
+Le implementazioni delle estensioni sono \textbf{codice host fidato} registrato alla
+costruzione. Le loro funzioni \code|eval|/\code|resolve| ricevono \textbf{valori JS
+semplici} (mai i \ic{Value} tipati interni) e i loro risultati sono re-inferiti e
+sanificati dal motore via \ic{fromJs}. Non esiste alcun \code|eval| del testo del
+template: un'estensione non può iniettare dati non tipati o non sanificati.
+\end{teoria}
+
+\section{defineFunction --- produttori e trasformatori}
+
+Una funzione è un \textbf{produttore} (senza \ic{receiver}) o un
+\textbf{trasformatore} (metodo su un tipo \ic{receiver}). L'\code|eval| lavora su
+valori JS; per un trasformatore il receiver è passato per primo.
+
+\begin{lstlisting}
+const Greeting = defineFunction('greeting', {
+  arity: { min: 0, max: 0 }, eval: () => 'Hello',      // produttore: ${ greeting() }
+});
+const Slugify = defineFunction('slugify', {
+  receiver: 'string', arity: { min: 0, max: 0 },       // trasformatore su string
+  eval: (self) => self.toLowerCase().replace(/\s+/g, '-'),
+});
+const engine = createEngine({ functions: [Greeting, Slugify] });
+engine.run(engine.start('${ greeting() }')).output;              // "Hello"
+engine.run(engine.start("${ 'Hello World'.slugify() }")).output; // "hello-world"
+\end{lstlisting}
+
+\section{defineLibrary --- namespace di funzioni}
+
+\begin{lstlisting}
+const Geo = defineLibrary('geo', {
+  functions: { zip: { arity: { min: 0, max: 0 }, eval: () => '00100' } },
+});
+const engine = createEngine({ libraries: [Geo] });
+engine.run(engine.start('${ geo.zip() }')).output; // "00100"
+\end{lstlisting}
+
+Una stringa in \ic{libraries} (es. \code|['fake']|) \emph{abilita} solo il
+namespace per il parsing; invocare una \code|ns.fn()| non registrata è
+\ic{UNKNOWN\_FUNCTION}.
+
+\section{defineCapability --- risolutori di dati}
+
+Un descrittore di capability porta un \code|resolve| (sync o async) ed
+eventualmente un \textbf{contratto} (\ic{type}/\ic{label}/\ic{description}) che lo
+zucchero \code|cap('id')| eredita.
+
+\begin{lstlisting}
+const engine = createEngine({
+  capabilities: {
+    weather: defineCapability('weather', {
+      type: string(), label: 'Daily forecast',
+      resolve: async (req) => fetchForecast(req.args?.city),
+    }),
+    user: () => undefined, // una funzione nuda (nessun contratto)
+  },
+});
+\end{lstlisting}
+
+\section{defineMacro --- aggregatori e layout}
+
+Una macro è un \textbf{aggregatore} (pre-pass) o una macro di \textbf{layout}
+(post-pass). Una macro di layout può portare un \code|apply(slot, doc)| che
+\code|finalize| esegue sul marcatore emesso; il valore restituito sostituisce la
+porzione del marcatore.
+
+\begin{lstlisting}
+const Banner = defineMacro('BANNER', {
+  phase: 'finalize',
+  apply: (slot) => `*** ${slot.args[0]?.replace(/'/g, '') ?? ''} ***`,
+});
+const engine = createEngine({ macros: [Banner] });
+// engine.stebo({ template: "@{ BANNER('Hi') }" }) -> output "*** Hi ***"
+\end{lstlisting}
+
+\section{defineType --- nuovi tipi di dato}
+
+\code|defineType| registra un nome di tipo ed è cablato nel valutatore:
+\code|name(value)| costruisce un valore (eseguendo \code|validate| alla costruzione,
+un esito falso è \ic{CONSTRAINT\_VIOLATION}), \code|stringify| lo rende all'emissione
+e \ic{defaultFormat} inizializza il suo \ic{format}.
+
+\begin{lstlisting}
+const Money = defineType('money', {
+  category: 'base',
+  defaultFormat: { currency: 'EUR' },
+  validate: (v) => typeof v === 'number' && v >= 0,
+  stringify: (v, fmt) => `${v.toFixed(2)} ${fmt.currency}`,
+});
+const engine = createEngine({ types: [Money] });
+// engine.stebo({ template: '${ money(1234.5) }' }) -> "1234.50 EUR"
+\end{lstlisting}
+
+\begin{nota}
+I tipi custom \textbf{non} partecipano agli operatori builtin (\code|+|, \code|<|,
+\ldots): nella v1 non esiste un hook di operatore. I trasformatori custom
+(\code|defineFunction| con \ic{receiver: '<tipo>'}) si applicano invece anche ai
+receiver custom.
+\end{nota}
+
+\section{defineAction --- gestori d'effetto}
+
+\code|defineAction(type, handler)| (nota la firma \ic{(type, handler)}, diversa
+dalle altre) registra l'implementazione concreta di un effetto. Il gestore gira
+\textbf{solo} attraverso \ic{seebo/actions} (Capitolo~\ref{ch:actions}); si passa in
+\ic{config.actions} o con \code|engine.defineAction(type, handler)| (concatenabile).
+
+%##############################################################################
+\part{Garanzie e interni}
+%##############################################################################
+
+\chapter{Architettura e pipeline}
+\label{ch:architettura}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Collocare ogni modulo nella pipeline e capirne la responsabilità.
+  \item Comprendere la regola architetturale ``core puro e sincrono, driver
+    asincrono''.
+  \item Conoscere i tre contratti pubblici versionati.
+\end{itemize}
+\end{obiettivi}
+
+\section{La pipeline a fasi}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=6mm and 12mm,
+  proc/.style={rectangle,rounded corners=2pt,draw=seeboBlue,fill=seeboBlue!8,
+    minimum height=8mm,minimum width=20mm,font=\sffamily\small,align=center},
+  data/.style={font=\ttfamily\scriptsize,color=seeboAccent},
+  frame/.style={rectangle,rounded corners=2pt,draw=seeboGreen,fill=seeboGreen!8,
+    minimum height=8mm,minimum width=22mm,font=\sffamily\small,align=center},
+  arr/.style={-{Stealth[length=2.2mm]},thick,draw=seeboAccent}]
+  \node[frame] (expand) {EXPAND\\\scriptsize aggregatori};
+  \node[proc,right=of expand] (lex) {LEX};
+  \node[proc,right=of lex] (parse) {PARSE};
+  \node[proc,below=14mm of lex] (validate) {VALIDATE};
+  \node[proc,right=of validate] (analyze) {ANALYZE};
+  \node[proc,right=of analyze] (run) {RUN};
+  \node[frame,right=of run] (finalize) {FINALIZE\\\scriptsize layout};
+  \draw[arr] (expand) -- (lex);
+  \draw[arr] (lex) -- node[above,data]{token} (parse);
+  \draw[arr] (parse.south) to[out=-90,in=90] node[right,data,pos=0.35]{AST} (validate.north);
+  \draw[arr] (parse.south) to[out=-90,in=90] (analyze.north);
+  \draw[arr] (parse.south) to[out=-90,in=90] (run.north);
+  \draw[arr] (run) -- (finalize);
+\end{tikzpicture}
+\caption{La pipeline. \textsc{lex}/\textsc{parse}/\textsc{validate}/\textsc{analyze}/\textsc{run}
+sono \textbf{pure e sincrone}. \textsc{validate} e \textsc{analyze} sono passate
+statiche \emph{indipendenti} sullo stesso AST (non una catena). \textsc{expand} e
+\textsc{finalize} incorniciano l'esecuzione; l'unica asincronia vive nel driver
+attorno a \textsc{run}.}
+\label{fig:pipeline}
+\end{figure}
+
+\begin{teoria}[Perché l'I/O fuori dal core]
+Tenere \code|run| puro e sincrono massimizza l'analizzabilità e la testabilità (un
+passo è una funzione \ic{State} $\rightarrow$ \ic{State} deterministica), rende lo
+stato \textbf{serializzabile} e permette di eseguire la stessa logica su client e
+server. L'I/O --- l'unica fonte di non-determinismo e latenza --- è isolato in un
+orchestratore sottile.
+\end{teoria}
+
+\section{Responsabilità dei moduli}
+
+Ogni modulo è organizzato come file-contratto (la fonte di verità per forme e
+firme) più un \code|index.js| barile che li ri-esporta.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.2cm}@{}}
+\toprule
+\textbf{Modulo} & \textbf{Responsabilità} \\
+\midrule
+\code|src/lexer/| & tokenizzazione, tollerante agli errori, in una passata O(n). \\
+\code|src/parser/| & discesa ricorsiva + Pratt per gli infissi; produce l'AST. \\
+\code|src/ast/| & \ic{Document} e le forme dei nodi (versionato). \\
+\code|src/runtime/| & sistema di tipi a runtime + registry delle estensioni. \\
+\code|src/eval/| & valutatore sospendibile \ic{Ok/Susp/Err}. \\
+\code|src/run/| & macchina a stati pura: \code|start|/\code|run|. \\
+\code|src/validate/| & diagnostiche statiche + inferitore di tipi. \\
+\code|src/analyze/| & grafo/piano/metriche/streamability. \\
+\code|src/macros/| & \code|expand| (aggregatori) + \code|finalize| (layout). \\
+\code|src/driver/| & l'unico livello asincrono; \code|drive|/\code|stebo|. \\
+\code|src/actions/| & contratti + planning + policy (puri) e il livello di
+esecuzione (\ic{seebo/actions}). \\
+\code|src/util/| & errori, versioni, limiti, vocabolario builtin. \\
+\code|src/index.js| & facciata pubblica: \code|createEngine|, \code|builtins|,
+\code|define*|. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Contratti pubblici versionati}
+
+Tre strutture attraversano il confine motore$\leftrightarrow$applicazione e portano
+un numero di versione \textbf{indipendente} (tutti \ic{1} in v1):
+
+\begin{itemize}
+  \item \ic{astVersion} --- la forma dell'AST;
+  \item \ic{stateVersion} --- la forma del \ic{PublicState};
+  \item \ic{analysisVersion} --- la forma di \ic{Analysis}.
+\end{itemize}
+
+Numeri separati permettono di evolvere ciascun contratto al proprio ritmo: un
+cambio cosmetico ad \ic{Analysis} non deve invalidare gli \ic{State} già salvati
+(Capitolo~\ref{ch:versionamento}).
+
+\chapter{Sicurezza e limiti}
+\label{ch:sicurezza}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Conoscere il modello di minaccia e la separazione fidato/non fidato.
+  \item Consultare la tabella dei limiti e i codici che scattano.
+  \item Capire le protezioni contro la prototype pollution.
+\end{itemize}
+\end{obiettivi}
+
+\section{Modello di minaccia}
+
+\seebo\ è progettato per eseguire \textbf{template non fidati} e \textbf{dati non
+fidati} senza compromettere l'host, anche sul client:
+
+\begin{itemize}
+  \item \textbf{La terminazione è garantita.} Il linguaggio non è Turing-completo
+    (niente cicli/ricorsione utente, inclusione limitata); ogni limite ha un default
+    finito, quindi la valutazione termina sempre.
+  \item \textbf{Il core è puro e sincrono.} \code|tokenize|/\code|parse|/\code|validate|/\code|analyze|/\code|run|
+    non fanno I/O e non toccano authority ambientale (niente \code|eval|/\code|Function|,
+    niente \code|globalThis|/\code|process|, niente rete o filesystem). L'unico
+    componente asincrono è il driver, che raggiunge il mondo \emph{solo} attraverso
+    le capability registrate dall'host.
+  \item \textbf{Confine di fiducia.} Il frontend esegue il motore per la UX; il
+    backend resta l'\textbf{autorità} che ri-esegue e ri-valida gli output. Poiché
+    \code|run| è puro e lo \ic{PublicState} è serializzabile, una conversazione
+    iniziata sul client può essere conclusa e verificata sul server con lo stesso
+    codice.
+\end{itemize}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{6.6cm}@{}}
+\toprule
+\textbf{Superficie} & \textbf{Fiducia} & \textbf{Note} \\
+\midrule
+sorgente del template & non fidato & limitato + validato; non raggiunge i globali. \\
+dati risolti / capability & non fidato & sanificati, verificati per tipo/vincoli. \\
+estensioni \code|define*| & \textbf{fidato} & codice host; riceve JS semplice. \\
+\ic{policy}/\ic{limits}/\ic{clock} & \textbf{fidato} & configurazione dell'host. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Limiti configurabili}
+
+Ogni fase è limitata; un superamento fallisce con un \textbf{codice diagnostico
+specifico}, mai un troncamento silenzioso o un crash.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l r l l@{}}
+\toprule
+\textbf{Limite} & \textbf{Default} & \textbf{Fase} & \textbf{Codice} \\
+\midrule
+\ic{maxInputBytes} & 1\,000\,000 & parse & \ic{INPUT\_LIMIT\_EXCEEDED} \\
+\ic{maxTokens} & 100\,000 & parse & \ic{TOKEN\_LIMIT\_EXCEEDED} \\
+\ic{maxNodes} & 50\,000 & parse & \ic{NODE\_LIMIT\_EXCEEDED} \\
+\ic{maxNestingDepth} & 200 & parse & \ic{NESTING\_LIMIT\_EXCEEDED} \\
+\ic{maxSteps} & 1\,000\,000 & run & \ic{STEP\_LIMIT\_EXCEEDED} \\
+\ic{maxOutputBytes} & 1\,000\,000 & run & \ic{OUTPUT\_LIMIT\_EXCEEDED} \\
+\ic{maxDepth} & 20 & expand & \ic{DEPTH\_EXCEEDED} \\
+\ic{maxPhases} & 10 & driver & \ic{MAX\_PHASES\_EXCEEDED} \\
+\ic{timeoutMs} & 2000 & driver & \ic{CAPABILITY\_ERROR} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I primi quattro (\ic{maxDepth}, \ic{maxPhases}, \ic{maxOutputBytes},
+\ic{timeoutMs}) sono i limiti normativi; gli altri sono guardie di hardening
+additive. I limiti sono fuori dal percorso caldo: un template normale sta ben sotto
+ogni default.
+
+\begin{attenzione}[Il codice del timeout]
+Nella v1, un timeout di un provider si manifesta come \ic{CAPABILITY\_ERROR}: il
+codice \ic{TIMEOUT} esiste nell'enum ma \textbf{non è emesso} dal driver (il timeout
+rigetta la Promise, che viene classificata come \ic{ProviderError}). Non fare
+affidamento su \ic{TIMEOUT} come codice runtime.
+\end{attenzione}
+
+\section{Protezione dalla prototype pollution}
+
+Dati non fidati e id di requirement non fidati non raggiungono mai
+\code|Object.prototype|:
+
+\begin{itemize}
+  \item \textbf{Sanificazione JSON.} Oggetti e array sono clonati in profondità in
+    strutture solo-JSON fresche. Le chiavi \code|__proto__| sono \textbf{scartate}, e
+    ogni chiave conservata è creata con \code|Object.defineProperty| (descrittore di
+    dato), così un setter ereditato non può mai girare. Istanze di classe,
+    \code|Date|, \code|Map|, funzioni, symbol, bigint, numeri non finiti e
+    riferimenti circolari sono rifiutati; profondità e dimensione sono limitate.
+  \item \textbf{Mappe di id} (\ic{PublicState.resolved}, l'insieme risolto del
+    driver) sono popolate con \code|safeSet|, che usa \code|Object.defineProperty|:
+    un requirement dichiarato come \code|__proto__| crea una proprietà propria
+    normale invece di mutare il prototipo.
+  \item \textbf{Accesso a membro} rifiuta \code|__proto__| e legge solo proprietà
+    proprie.
+\end{itemize}
+
+Il motore non usa alcun accesso globale indiscriminato: niente \code|eval|/\code|new Function|,
+niente \code|globalThis|/\code|process|/\code|require| nel percorso di valutazione.
+
+\section{Autorizzazione delle capability e delle azioni}
+
+Le capability sono l'unico percorso verso dati sensibili, quindi il loro uso è
+governato dalla \ic{policy}, verificata \textbf{prima} che un provider giri
+(allow-list, regole di fiducia, redazione, audit). Un valore ritornato è sempre
+validato contro tipo/vincoli: un valore invalido non entra mai in \ic{resolved}.
+
+Le \textbf{azioni} sono tenute a una separazione ancora più stretta: il core puro
+non le esegue mai; la policy è \emph{fail-closed}; un tipo senza gestore registrato
+non può eseguire (\ic{HANDLER\_NOT\_FOUND}); l'\ic{input} è deep-sanificato come ogni
+valore.
+
+\begin{nota}[Fuori scope nella v1]
+Il timeout limita le Promise attese, non un provider che blocca sincrono l'event
+loop (responsabilità dell'host); i limiti non sono una sandbox a livello di OS (per
+garanzie forti, isolare il processo); il codice delle estensioni fidate non è
+sandboxato per definizione.
+\end{nota}
+
+\chapter{Prestazioni e ottimizzazioni}
+\label{ch:prestazioni}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Eseguire i benchmark e leggere i numeri di base.
+  \item Sapere quali punti caldi sono stati ottimizzati e quali no (e perché).
+  \item Abilitare consapevolmente \ic{astCache}.
+\end{itemize}
+\end{obiettivi}
+
+\begin{teoria}[Regola guida]
+\textbf{Misurare prima}: nessuna micro-ottimizzazione che danneggi la leggibilità
+senza evidenze. Le ottimizzazioni che \emph{non} intaccano immutabilità e
+analizzabilità (\ic{astCache}) sono di prima scelta; quelle che vi confliggono
+restano opzioni di nicchia, esplicite e reversibili --- tutte \textbf{off di
+default}.
+\end{teoria}
+
+\section{Eseguire i benchmark}
+
+\begin{lstlisting}
+npm run bench         # tempi (ms/op, ops/s)
+npm run bench:gc      # tempi + stima allocazioni (node --expose-gc)
+npm run bench:smoke   # run minimo, usato dalla CI
+\end{lstlisting}
+
+\section{Baseline (scale 120)}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+\textbf{Operazione} & \textbf{ms/op} & \textbf{ops/s} & \textbf{KB/op} \\
+\midrule
+\code|lexer.tokenize| & 0.245 & 4080 & 2.5 \\
+\code|parser.parse| & 3.78 & 264 & 89.5 \\
+\code|render run()| (a freddo) & 2.84 & 352 & 55.8 \\
+\code|analyze()| & 7.00 & 143 & 135.3 \\
+\code|macro stebo()| & 4.64 & 216 & 230.9 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Lettura: il \textbf{lexer è già veloce} e allocation-light (una passata lineare, non
+è un collo di bottiglia); il \textbf{parsing domina} tutto il resto ed è rifatto a
+ogni \code|render run()| (la strategia v1 riparse a ogni passata); \code|analyze| e
+\code|stebo| sono i più pesanti perché parsano \emph{e} fanno lavoro extra.
+
+\section{Punti caldi e interventi}
+
+\begin{itemize}
+  \item \textbf{Scan del lexer --- nessun cambiamento (per evidenza).} A $\sim$4080
+    ops/s su un template di 20 KB non è sul percorso critico.
+  \item \textbf{Loop del parser --- la vittoria è non riparsare.} Il costo a freddo è
+    intrinseco alla costruzione dell'AST (un nodo e una posizione per elemento
+    sintattico, richiesti dal contratto pubblico): la mossa decisiva è evitare del
+    tutto il re-parse tramite la cache.
+  \item \textbf{Passo del valutatore --- eliminare lavoro ridondante per passata.} La
+    scansione statica delle dichiarazioni (\code|collectDeclarations|) è memoizzata
+    per identità dell'AST (\code|WeakMap|), così gira una volta per template invece
+    che a ogni passata.
+\end{itemize}
+
+\section{La cache opt-in \texttt{astCache}}
+
+Abilitando \code|optimizations.astCache|, \code|parse| e \code|analyze| sono
+memoizzati per \ic{(config, template)}, in modo \textbf{trasparente} (il risultato è
+identico al percorso non cached, ed è restituito read-only).
+
+\begin{center}
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+\textbf{Operazione} & \textbf{default ms/op} & \textbf{+astCache ms/op} & \textbf{speed-up} \\
+\midrule
+\code|parser.parse| & 3.78 & 0.0005 & $\sim$3000$\times$ \\
+\code|render run()| & 2.84 & 0.63 & $\sim$4.5$\times$ \\
+\code|analyze()| & 7.00 & 0.0009 & $\sim$3000$\times$ \\
+\code|macro stebo()| & 4.64 & 0.68 & $\sim$6.8$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Quando abilitarla:} motori a lunga vita che rendono \emph{gli stessi}
+template ripetutamente (rendering server-side, il loop multi-fase, un editor che
+rianalizza a ogni tasto). Per parse ``usa e getta'' di sorgenti sempre diverse
+aggiunge solo una scrittura in \code|WeakMap|/\code|Map|. Le altre tre ottimizzazioni
+(\ic{lazyParse}, \ic{stream}, \ic{objectPool}) sono accettate ma \textbf{inerti} in
+v1.
+
+\chapter{Determinismo e versionamento}
+\label{ch:versionamento}
+
+\begin{obiettivi}
+\begin{itemize}
+  \item Rendere riproducibile l'output iniettando \ic{clock}/\ic{seed}.
+  \item Capire quando un cambiamento è \emph{breaking} per un contratto pubblico.
+  \item Conoscere la migrazione dello stato e l'invalidazione delle cache.
+\end{itemize}
+\end{obiettivi}
+
+\section{Determinismo iniettabile}
+
+\ic{clock} e \ic{seed} nel contesto rendono riproducibili \code|now()|/\ic{fake.*}
+--- fondamentale perché \textbf{anteprima} (frontend) e \textbf{output autorevole}
+(backend) possano coincidere quando serve. Il campo \ic{analyze.deterministic}
+segnala se un template è riproducibile: nella v1 è conservativo, cioè \ic{false}
+appena compaiono \code|now()| o \ic{fake.*} liberi (senza \ic{clock}/\ic{seed}
+fissati).
+
+\section{Politica di compatibilità}
+
+I tre contratti versionati (\ic{astVersion}, \ic{stateVersion},
+\ic{analysisVersion}) crescono secondo una regola precisa.
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.6cm}@{}}
+\toprule
+\textbf{Tipo di modifica} & \textbf{Esempi} \\
+\midrule
+\textbf{Non-breaking} (additiva, ignorabile) & nuovo campo opzionale, nuovo
+\ic{DiagnosticCode}, nuovo valore enum in coda. \\
+\textbf{Breaking} (incrementa la major) & rimuovere/rinominare un campo, cambiare il
+tipo o la semantica di un campo, cambiare il significato di un valore enum. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{Backward} (obiettivo primario): un motore nuovo deve poter leggere
+    uno \ic{PublicState} più vecchio. Se \ic{stateVersion} è inferiore al corrente,
+    \code|migrateState| applica in sequenza i migratori registrati $v \rightarrow
+    v+1$ prima di \code|run|. Un migratore è una funzione pura
+    \ic{PublicState}$_v$ $\rightarrow$ \ic{PublicState}$_{v+1}$ (la lista è vuota in
+    v1).
+  \item \textbf{Forward} (non garantita): uno \ic{State} prodotto da un motore
+    \emph{più nuovo} può non essere leggibile; se \ic{stateVersion} è maggiore del
+    corrente, il motore \textbf{rifiuta} con \ic{UNSUPPORTED\_STATE\_VERSION} invece
+    di indovinare.
+\end{itemize}
+
+\begin{nota}[Invalidazione delle cache]
+La chiave dell'\ic{astCache} deve includere \ic{astVersion}, l'hash della config dei
+\ic{delimiters} e l'hash del vocabolario, così un cambio di versione o di
+configurazione non fa mai ricaricare un AST incompatibile; la cache di \code|analyze|
+aggiunge \ic{analysisVersion}. I \ic{code} diagnostici sono identificatori
+\textbf{stabili}: non si rinominano; aggiungerne di nuovi è non-breaking.
+\end{nota}
+
+%##############################################################################
+\appendix
+\part{Appendici}
+%##############################################################################
+
+\chapter{Riferimento dei codici diagnostici}
+\label{app:diagnostics}
+
+Ogni diagnostica ha la forma \verb|{ code, severity, phase, recoverable, message, position?, data? }|.
+Il \ic{code} è un identificatore \textbf{stabile} (contratto pubblico): i consumatori
+si basano sul \ic{code}, mai sul \ic{message}. \ic{recoverable: true} significa che
+la fase accumula la diagnostica e prosegue (tipico di \code|tokenize|/\code|validate|,
+che restituiscono liste); \ic{false} significa arresto della fase.
+
+\begin{center}
+\small
+\begin{longtable}{@{}l l l p{6.4cm}@{}}
+\toprule
+\textbf{Codice} & \textbf{Sev.} & \textbf{Fase} & \textbf{Significato} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Codice} & \textbf{Sev.} & \textbf{Fase} & \textbf{Significato} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\ic{SYNTAX\_ERROR} & error & parse & sintassi malformata (unico codice che
+\code|parse| lancia di default). \\
+\ic{UNDECLARED\_NAME} & error & validate & riferimento a un nome non dichiarato. \\
+\ic{UNKNOWN\_FUNCTION} & error & validate & produttore ignoto o namespace non abilitato. \\
+\ic{UNKNOWN\_METHOD} & error & validate & metodo assente sul tipo del receiver inferito. \\
+\ic{ARITY\_MISMATCH} & error & validate & numero di argomenti sbagliato. \\
+\ic{TYPE\_ERROR} & error & validate & violazione di tipo provabile staticamente. \\
+\ic{NON\_EXHAUSTIVE\_MATCH} & error & validate & \code|match| senza \code|*| su dominio aperto. \\
+\ic{UNKNOWN\_CAPABILITY} & error & validate & capability non registrata. \\
+\ic{POLICY\_FORBIDDEN} & error & validate & tipo/funzione/capability/ambiente escluso da policy. \\
+\ic{RESERVED\_NAME} & error & createEngine & nome che collide con una parola riservata. \\
+\ic{NAME\_CONFLICT} & error & createEngine & nome duplicato nel suo spazio dei nomi. \\
+\ic{CYCLE\_DETECTED} & warning & analyze & ciclo nel requirement graph. \\
+\ic{STREAM\_NOT\_FULL} & info & analyze & streaming richiesto ma non pienamente idoneo. \\
+\ic{TYPE\_ERROR\_RUNTIME} & error & run & errore di tipo scoperto solo a runtime. \\
+\ic{CONSTRAINT\_VIOLATION} & error & run & un valore viola i propri \ic{constraints}. \\
+\ic{DIVISION\_BY\_ZERO} & error & run & divisione per zero. \\
+\ic{INCLUSION\_CYCLE} & error & run & inclusione ciclica di template. \\
+\ic{DEPTH\_EXCEEDED} & error & run & profondità d'inclusione oltre \ic{maxDepth}. \\
+\ic{MAX\_PHASES\_EXCEEDED} & error & run & troppi giri di conversazione (\ic{maxPhases}). \\
+\ic{OUTPUT\_LIMIT\_EXCEEDED} & error & run & output oltre \ic{maxOutputBytes}. \\
+\ic{TIMEOUT} & error & run & budget di tempo superato (\emph{definito ma non emesso in v1}). \\
+\ic{INPUT\_LIMIT\_EXCEEDED} & error & parse & sorgente oltre \ic{maxInputBytes}. \\
+\ic{TOKEN\_LIMIT\_EXCEEDED} & error & parse & troppi token (\ic{maxTokens}). \\
+\ic{NODE\_LIMIT\_EXCEEDED} & error & parse & troppi nodi AST (\ic{maxNodes}). \\
+\ic{NESTING\_LIMIT\_EXCEEDED} & error & parse & annidamento oltre \ic{maxNestingDepth}. \\
+\ic{STEP\_LIMIT\_EXCEEDED} & error & run & troppi passi di valutazione (\ic{maxSteps}). \\
+\ic{CAPABILITY\_FORBIDDEN} & error & driver & capability vietata dalla policy. \\
+\ic{CAPABILITY\_ERROR} & error & driver & il provider lancia, rifiuta o va in timeout. \\
+\ic{CAPABILITY\_INVALID\_VALUE} & error & driver & valore che viola tipo/vincoli del requirement. \\
+\ic{UNSUPPORTED\_STATE\_VERSION} & error & run & \ic{PublicState} da un motore più nuovo. \\
+\ic{INVALID\_ACTION} & error & validate & descrittore \code|action| malformato. \\
+\ic{DUPLICATE\_ACTION\_ID} & error & validate & id d'azione duplicato. \\
+\ic{UNKNOWN\_ACTION\_TYPE} & error & validate & nessun gestore per il tipo d'azione. \\
+\end{longtable}
+\end{center}
+
+\chapter{Grammatica, token e AST}
+\label{app:grammatica}
+
+\section{Token (\texttt{TokenType})}
+
+Il lexer produce token \verb|{ kind, start, end }| dove \ic{kind} è uno di:
+\ic{text}, \ic{slot-open}, \ic{slot-close}, \ic{name}, \ic{method}, \ic{number},
+\ic{string}, \ic{bool}, \ic{operator}, \ic{dot}, \ic{comma}, \ic{paren},
+\ic{bracket}, \ic{brace}, \ic{arrow} (\code|=>|), \ic{star} (il \code|*| di
+\code|match|), \ic{comment-body}, \ic{macro-name}. (Il valore \ic{sigil} è nell'enum
+ma non è mai emesso: il sigillo è incorporato in \ic{slot-open}.)
+
+\begin{nota}[Posizioni]
+Solo gli offset \ic{start}/\ic{end} (assoluti nel sorgente) sono \textbf{normativi};
+i metadati opzionali \ic{line}/\ic{column} sono derivabili dagli offset e non
+partecipano ad alcuna logica semantica.
+\end{nota}
+
+\section{Grammatica (informale)}
+
+\begin{lstlisting}
+Documento  ::= (Testo | Formula | Commento | Macro)*
+Formula    ::= '${' Expr '}'
+Commento   ::= '#{' ... '}'
+Macro      ::= '@{' NOME ( '(' Args ')' )? '}'
+
+Expr       ::= Ternary
+Ternary    ::= Coalesce ( '?' Expr ':' Ternary )?
+Coalesce   ::= Or   ( '??' Coalesce )?
+Or         ::= And  ( 'or' And )*
+And        ::= Cmp  ( 'and' Cmp )*
+Cmp        ::= Rel  ( ('=='|'!='|'in') Rel )*
+Rel        ::= Add  ( ('<'|'<='|'>'|'>=') Add )*
+Add        ::= Mul  ( ('+'|'-') Mul )*
+Mul        ::= Unary( ('*'|'/') Unary )*
+Unary      ::= ('not'|'-') Unary | Postfix
+Postfix    ::= Atom ( '.' IDENT ('(' Args ')')?     // metodo o membro
+                    | '(' Args ')' )*                 // chiamata produttore
+                    ( 'match' '{' Arm (',' Arm)* '}' )?
+Atom       ::= NUMBER | STRING | BOOL | IDENT
+             | '(' Expr ')' | '[' Args ']' | '{' Entries '}'
+Arm        ::= (Expr | '*') '=>' Expr
+Args       ::= ( Expr (',' Expr)* ','? )?
+Entries    ::= ( Key ':' Expr (',' ...)* ','? )?
+\end{lstlisting}
+
+\begin{itemize}
+  \item I literali sono solo \ic{int}, \ic{float}, \ic{string}, \ic{bool}: non
+    esistono literali per \ic{null}, \ic{duration} o \ic{datetime} (si costruiscono
+    con i produttori).
+  \item \code|match| è \emph{zucchero}: il parser lo riscrive subito in una catena
+    di ternari e non sopravvive nell'AST.
+  \item La sugar \code|cap('id')| è l'unica riscrittura a tempo di parsing: diventa
+    \code|need({ id, capability })| quando \ic{cap} è una capability registrata.
+\end{itemize}
+
+\section{Nodi dell'AST}
+
+\ic{Document} $= \{$ \ic{astVersion}, \ic{nodes} $\}$. I nodi di documento
+(\ic{NodeKind}): \ic{Text}, \ic{Formula}, \ic{Comment}, \ic{Macro}. Le espressioni
+(\ic{ExprKind}):
+
+\begin{lstlisting}
+Lit      { type, value }                 // type in int|float|string|bool
+Ref      { name }                        // riferimento a un nome dichiarato
+Call     { callee, args }                // produttore  nome(...)
+Method   { receiver, name, args }        // trasformatore  x.nome(...)
+Member   { receiver, key }               // o.campo
+Unary    { op, arg }                     // op in not | -
+Binary   { op, left, right }
+Ternary  { cond, then, else, nonExhaustiveMatch? }
+Namespace{ ns, name, args }              // libreria  ns.fn(...)
+ObjectLit{ entries: [{ key, value }] }
+ArrayLit { elements: [ ... ] }
+\end{lstlisting}
+
+Ogni nodo porta la propria \ic{position}. Il flag \ic{nonExhaustiveMatch} è
+non-normativo: lo legge solo \code|validate| per emettere \ic{NON\_EXHAUSTIVE\_MATCH}.
+
+\chapter{Riferimento rapido dell'API}
+\label{app:api}
+
+\section{Metodi dell'engine}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{6.6cm}@{}}
+\toprule
+\textbf{Metodo} & \textbf{Ritorna} & \textbf{Scopo} \\
+\midrule
+\code|tokenize(t)| & \ic{Token[]} & stream piatto, tollerante (non lancia). \\
+\code|parse(t)| & \ic{Document} & AST; lancia \ic{SYNTAX\_ERROR}. \\
+\code|validate(t)| & \ic{Diagnostic[]} & diagnostiche statiche (non lancia). \\
+\code|analyze(t)| & \ic{Analysis} & piano: requirement, grafo, metriche. \\
+\code|start(t, iv?)| & \ic{PublicState} & stato iniziale (\ic{status:'running'}). \\
+\code|run(state)| & \ic{PublicState} & un passo puro e sincrono. \\
+\code|expand({template, templates?})| & \ic{Promise<string>} & pre-pass aggregatori. \\
+\code|finalize(text)| & \ic{string} & post-pass layout (sincrono). \\
+\code|drive(stOrTpl, opts?)| & \ic{Promise<PublicState>} & risoluzione via capability. \\
+\code|stebo(args)| & \ic{Promise<PublicState>} & expand $\rightarrow$ drive $\rightarrow$ finalize. \\
+\code|defineAction(type, h)| & \ic{Engine} & registra un gestore (concatenabile). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\ic{DriveOptions} $= \{$ \ic{stopOn?: string[]} $\}$ (capability da \emph{non}
+risolvere). \ic{SteboArgs} $= \{$ \ic{template}, \ic{templates?}, \ic{values?},
+\ic{stopOn?} $\}$.
+
+\section{Fabbriche \texttt{define*}}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l l p{6.4cm}@{}}
+\toprule
+\textbf{Fabbrica} & \textbf{Collocazione} & \textbf{Note} \\
+\midrule
+\code|defineType(name, def?)| & \ic{types} & \ic{category?}, \ic{defaultFormat?},
+\ic{validate?}, \ic{stringify?}. \\
+\code|defineFunction(name, def)| & \ic{functions} & produttore o trasformatore
+(\ic{receiver?}), \ic{arity?}, \ic{eval}. \\
+\code|defineMacro(name, def?)| & \ic{macros} & \ic{family?}/\ic{phase?};
+\ic{apply(slot,doc)} per il layout. \\
+\code|defineCapability(name, def)| & \ic{capabilities[name]} & \ic{resolve(req)} +
+contratto \ic{type?}/\ic{label?}/\ic{description?}. \\
+\code|defineLibrary(name, def?)| & \ic{libraries} & \ic{functions: \{ fn: \{ arity?, eval \} \}}. \\
+\code|defineAction(type, handler)| & \ic{actions} & \ic{execute}, \ic{dryRun?},
+\ic{compensate?}; solo via \ic{seebo/actions}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{builtins}
+
+\begin{lstlisting}
+builtins.types;     // ['int','float','bool','string','datetime','duration','object','array']
+builtins.functions; // ['now','date']
+builtins.macros;    // ['ABSORB','MERGE','COLLAPSE','REMOVE_LINE','REMOVE_LEFT','REMOVE_RIGHT']
+builtins.all;       // { types, functions, macros }
+\end{lstlisting}
+
+\section{Enum dei contratti pubblici}
+
+\begin{center}
+\small
+\begin{tabular}{@{}l p{9.4cm}@{}}
+\toprule
+\textbf{Enum} & \textbf{Valori} \\
+\midrule
+\ic{Status} & \ic{running}, \ic{waiting}, \ic{completed}, \ic{failed}. \\
+\ic{ResultKind} & \ic{Ok}, \ic{Susp}, \ic{Err}. \\
+\ic{ProviderOutcome} & \ic{Resolved}, \ic{Unresolved}, \ic{ProviderError}, \ic{InvalidValue}. \\
+\ic{Streamability} & \ic{full}, \ic{partial}, \ic{buffered}. \\
+\ic{MacroFamily} & \ic{aggregator}, \ic{layout}. \\
+\ic{ActionStatus} & \ic{blocked}, \ic{ready}, \ic{pendingConfirmation}, \ic{executing},
+\ic{succeeded}, \ic{failed}, \ic{skipped}, \ic{compensated}, \ic{compensationFailed}. \\
+\ic{PlanStatus} & \ic{completed}, \ic{partial}, \ic{failed}, \ic{skipped}. \\
+\ic{ActionErrorCode} & \ic{INVALID\_ACTION\_DESCRIPTOR}, \ic{DUPLICATE\_ACTION\_ID},
+\ic{HANDLER\_NOT\_FOUND}, \ic{VALIDATION\_ERROR}, \ic{POLICY\_DENIED},
+\ic{PERMISSION\_DENIED}, \ic{ENVIRONMENT\_DENIED}, \ic{CONFIRMATION\_REQUIRED},
+\ic{DRY\_RUN\_UNSUPPORTED}, \ic{ACTION\_BLOCKED}, \ic{EXECUTION\_FAILED}, \ic{TIMEOUT},
+\ic{RETRY\_EXHAUSTED}, \ic{COMPENSATION\_UNSUPPORTED}, \ic{COMPENSATION\_FAILED}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Costanti di versione: \ic{AST\_VERSION} $=$ \ic{STATE\_VERSION} $=$
+\ic{ANALYSIS\_VERSION} $= 1$.
+
+\chapter{Esempio end-to-end commentato}
+\label{app:esempio}
+
+Mettiamo insieme tutto: un'email d'ordine che usa tre capability come produttori
+(\ic{secrets}, \ic{crm}, \ic{user}), aritmetica temporale, una lista a scelta, un
+requirement opzionale e una macro di layout. È il caso di conformità \spec{2.7},
+verificato dal test suite.
+
+\begin{lstlisting}
+const engine = createEngine({
+  locale: 'it-IT',
+  clock: () => new Date('2026-06-26T10:00:00Z'),   // "now" deterministico
+  capabilities: {
+    secrets: (req) => ({ mittente: 'noreply@acme.io' })[req.id],
+    crm:     (req) => ({ ordine: { id:42, totale:1234.5, data:'2026-06-20T10:00:00Z' } })[req.id],
+    user:    () => undefined,                        // interattiva
+  },
+});
+
+const template = [
+  "#{ Intestazione email d'ordine }",
+  "From: ${ secrets({ id:'mittente', type:string() }) }",
+  "Object: Order ${ crm({ id:'ordine', type:object() }).id } - ${ float(ordine.totale).constraints({precision:2}) } EUR",
+  'Evaso ${ (now() - datetime(ordine.data)).totalDays().round() } giorni fa.',
+  "${ user({ id:'greetings', label:'Saluto', type: array().constraints({values:['Dear','Ciao']}) }) } customer,",
+  "${ user({ id:'note', label:'Note?', type: string(), optional:true }) != '' ? 'Note: ' + note : '@{REMOVE_LINE}' }",
+].join('\n');
+
+const res = await engine.stebo({ template, values: { greetings: 'Dear', note: '' } });
+// res.status === 'completed'
+// res.output:
+//   <riga vuota lasciata dal commento>
+//   From: noreply@acme.io
+//   Object: Order 42 - 1234,50 EUR
+//   Evaso 6 giorni fa.
+//   Dear customer,
+//   (la riga "Note" e rimossa perche note era vuota)
+\end{lstlisting}
+
+\paragraph{Cosa osservare.}
+\begin{itemize}
+  \item \ic{secrets} e \ic{crm} si risolvono \emph{dentro} il driver; il valore di
+    \ic{ordine} è registrato per \ic{id} e riusato come \code|ordine.id|,
+    \code|ordine.totale|, \code|ordine.data|.
+  \item \code|float(ordine.totale).constraints({precision:2})| formatta
+    \ic{1234.5} come \ic{1234,50} (locale \ic{it-IT}, separatore decimale virgola).
+  \item \code|(now() - datetime(ordine.data)).totalDays().round()| è pura
+    aritmetica temporale: la differenza tra due istanti è una \ic{duration}, di cui
+    prendiamo i giorni totali arrotondati ($6$).
+  \item \ic{greetings} è una lista a scelta (\ic{array} con \ic{values}); \ic{note}
+    è \ic{optional}: non fornito, si risolve nella stringa vuota, e il ramo
+    \code|else| emette il marcatore \code|@{REMOVE_LINE}| che \code|finalize| usa per
+    cancellare l'intera riga.
+  \item Il commento \code|#{ ... }| è rimosso, ma lascia la riga vuota iniziale.
+\end{itemize}
+
+\chapter{Glossario}
+\label{app:glossario}
+
+\begin{description}
+  \item[Slot] Porzione di testo delimitata da un sigillo (\code|${| formula,
+    \code|#{| commento, \code|@{| macro) che durante la valutazione è sostituita.
+  \item[Formula] Espressione tipata dentro uno slot \code|${ ... }|, valutata e
+    stringhizzata all'emissione.
+  \item[Value] Dato tipato già posseduto dal motore, record immutabile
+    \verb|{ type, value, format, constraints }|.
+  \item[Requirement] Descrizione di un dato che serve, indipendente da chi/come lo
+    fornirà; ha un \ic{id} e cita una \emph{capability}.
+  \item[Capability] Risolutore registrato dall'applicazione che soddisfa i
+    requirement di una categoria; nessuna è builtin.
+  \item[Need] Il terzo esito della valutazione (accanto a Value ed Error): un
+    requirement non ancora soddisfatto che \emph{sospende} anziché fallire.
+  \item[bind] Dichiarazione di un valore puro con nome, noto prima della
+    valutazione; non sospende mai.
+  \item[prepare] Dichiarazione \emph{lazy} di un need/action riusabile per \ic{id};
+    non emette e non attiva nulla nel proprio punto.
+  \item[action] Dichiarazione di un effetto esterno; preparata dal core, eseguita
+    solo da \ic{seebo/actions}.
+  \item[Conversazione] La successione di stati (Created $\rightarrow$ Running
+    $\rightarrow$ Waiting $\rightarrow$ \ldots\ $\rightarrow$ Completed) attraverso
+    cui passa la valutazione.
+  \item[Fase] Il ``giro'' in cui un requirement diventa attivo; nel grafo, la
+    lunghezza del cammino più lungo che lo governa.
+  \item[Driver] L'unico componente asincrono: soddisfa i \ic{Need} via capability e
+    ri-esegue \code|run|.
+  \item[PublicState] L'unica forma serializzabile dello stato di una conversazione.
+  \item[Analysis] L'output di \code|analyze|: requirement, grafo, piano, metriche.
+  \item[Aggregatore] Macro di composizione (pre-pass): \code|ABSORB|, \code|MERGE|.
+  \item[Macro di layout] Macro di rifinitura (post-pass): \code|REMOVE_LINE|,
+    \code|COLLAPSE|, \code|REMOVE_LEFT|, \code|REMOVE_RIGHT|.
+  \item[Stringhizzazione] La conversione di un valore tipato in testo, che avviene
+    solo all'emissione dello slot.
+  \item[Contratto della capability] Metadati statici (\ic{type}/\ic{label}/
+    \ic{description}) che lo zucchero \code|cap('id')| eredita.
+  \item[Idempotency key] Chiave stabile di un'azione (SHA-256 su
+    \verb|{id,type,environment,input}|), costante tra retry.
+  \item[Dry-run] Simulazione di un'azione che chiama \ic{dryRun} del gestore e mai
+    \ic{execute}.
+  \item[Compensazione] Annullamento di un'azione riuscita, fornito dal gestore
+    (\ic{compensate}).
+\end{description}
+
+\vfill
+\begin{center}\small\itshape
+Fine della dispensa. Per il codice sorgente, i test di conformità e le specifiche
+normative complete, si vedano \texttt{docs/initial\_docs/spec.md} e
+\texttt{docs/initial\_docs/impl.md} nel repository.
+\end{center}
+
+\end{document}
