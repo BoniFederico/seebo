@@ -263,12 +263,18 @@ test('explicit require is left untouched', () => {
   assert.equal(e.args[0].entries.length, 2); // no duplicate capability injected
 });
 
-test('capability sugar wraps dynamic expressions with args.ref', () => {
+test('capability sugar wraps dynamic expressions with args.ref and a synthesized id', () => {
   const e = expr("previous(textbox({ id: 'block' }))", { capabilities: ['previous'] });
   assert.equal(e.kind, 'Call');
   assert.equal(e.callee, 'need');
   const descriptor = e.args[0];
   assert.equal(descriptor.kind, 'ObjectLit');
+  // Check id entry — required downstream (analyze/evaluator key on a plain string id).
+  const idEntry = descriptor.entries.find((/** @type {any} */ en) => en.key === 'id');
+  assert.ok(idEntry, 'descriptor should have a synthesized id entry');
+  assert.equal(idEntry.value.kind, 'Lit');
+  assert.equal(typeof idEntry.value.value, 'string');
+  assert.ok(idEntry.value.value.startsWith('previous@'));
   // Check args entry
   const argsEntry = descriptor.entries.find((/** @type {any} */ en) => en.key === 'args');
   assert.ok(argsEntry, 'descriptor should have args entry');
@@ -281,6 +287,19 @@ test('capability sugar wraps dynamic expressions with args.ref', () => {
   const capEntry = descriptor.entries.find((/** @type {any} */ en) => en.key === 'capability');
   assert.ok(capEntry, 'descriptor should have capability entry');
   assert.equal(capEntry.value.value, 'previous');
+});
+
+test('two dynamic capability-sugar calls at different call sites get distinct ids', () => {
+  const d = doc("${ previous(textbox({ id: 'a' })) }${ previous(textbox({ id: 'b' })) }", {
+    capabilities: ['previous'],
+  });
+  const ids = d.nodes
+    .filter((/** @type {any} */ n) => n.kind === 'Formula')
+    .map(
+      (/** @type {any} */ n) =>
+        n.expr.args[0].entries.find((/** @type {any} */ e) => e.key === 'id').value.value
+    );
+  assert.notEqual(ids[0], ids[1]);
 });
 
 /* ----------------------------------------------------------------------------------- *

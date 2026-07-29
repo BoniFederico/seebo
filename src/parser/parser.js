@@ -578,7 +578,21 @@ function injectCapability(args, name, position) {
     return [descriptor, ...args.slice(1)];
   }
 
-  // `cap(expr)` — dynamic expression, wrap with `args: { ref: expr }`.
+  // `cap(expr)` — dynamic expression, wrap with `args: { ref: expr }`. The requirement id is
+  // synthesized from the call site (capability name + source offset): stable across re-parses
+  // of the same template, unique per occurrence, and required downstream — `analyze`/the
+  // evaluator key their dependency graph and `needs`/`resolved` maps on a plain string `id`
+  // (SPEC §2.4).
+  /** @type {import('../ast/nodes.js').ObjectEntry} */
+  const idEntry = {
+    key: 'id',
+    value: {
+      kind: 'Lit',
+      position: first.position,
+      type: 'string',
+      value: `${name}@${first.position.start}`,
+    },
+  };
   /** @type {import('../ast/nodes.js').ObjectLitNode} */
   const argsObject = {
     kind: 'ObjectLit',
@@ -589,7 +603,7 @@ function injectCapability(args, name, position) {
   const descriptor = {
     kind: 'ObjectLit',
     position: first.position,
-    entries: [{ key: 'args', value: argsObject }, capabilityEntry],
+    entries: [idEntry, { key: 'args', value: argsObject }, capabilityEntry],
   };
   return [descriptor, ...args.slice(1)];
 }
