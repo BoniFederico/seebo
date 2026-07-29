@@ -119,8 +119,9 @@ function children(expr) {
 
 /**
  * Extracts a requirement descriptor from a `need(...)` call (SPEC §1.6). The descriptor must
- * carry a string `id` and a `capability`; the **capability sugar** `cap('id')` produces this
- * shape at parse time (`need({ id:'id', capability:'cap' })`), so it is the idiomatic short form.
+ * carry a `capability` and either a string `id` or dynamic `args.ref` (SPEC §2.4):
+ *  - `need({ id:'id', capability:'cap' })` — static ID (idiomatic short form via capability sugar);
+ *  - `need({ args: { ref: expr }, capability: 'cap' })` — dynamic ID resolved from expr at render time.
  *
  * The `type` is left **undefined** when the descriptor omits it, so a capability contract can fill
  * it later (see {@link applyCapabilityContract}); the final fallback to `string()` is applied
@@ -140,9 +141,12 @@ export function extractRequirement(call) {
   } else {
     throw syntax('need(...) expects a capability name string or a descriptor object', call);
   }
-  if (typeof d.id !== 'string') throw syntax("need descriptor needs a string 'id'", call);
+  const hasArgs = d.argsNode !== undefined;
+  if (typeof d.id !== 'string' && !hasArgs) {
+    throw syntax("need descriptor needs a string 'id' or dynamic args.ref", call);
+  }
   if (typeof d.capability !== 'string') {
-    throw syntax(`need '${d.id}' needs a 'capability'`, call);
+    throw syntax(`need descriptor needs a 'capability'`, call);
   }
   return /** @type {any} */ (d);
 }
