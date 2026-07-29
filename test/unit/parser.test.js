@@ -263,6 +263,26 @@ test('explicit require is left untouched', () => {
   assert.equal(e.args[0].entries.length, 2); // no duplicate capability injected
 });
 
+test('capability sugar wraps dynamic expressions with args.ref', () => {
+  const e = expr("previous(textbox({ id: 'block' }))", { capabilities: ['previous'] });
+  assert.equal(e.kind, 'Call');
+  assert.equal(e.callee, 'need');
+  const descriptor = e.args[0];
+  assert.equal(descriptor.kind, 'ObjectLit');
+  // Check args entry
+  const argsEntry = descriptor.entries.find((/** @type {any} */ en) => en.key === 'args');
+  assert.ok(argsEntry, 'descriptor should have args entry');
+  assert.equal(argsEntry.value.kind, 'ObjectLit');
+  const refEntry = argsEntry.value.entries.find((/** @type {any} */ en) => en.key === 'ref');
+  assert.ok(refEntry, 'args should have ref entry');
+  assert.equal(refEntry.value.kind, 'Call');
+  assert.equal(refEntry.value.callee, 'textbox');
+  // Check capability entry
+  const capEntry = descriptor.entries.find((/** @type {any} */ en) => en.key === 'capability');
+  assert.ok(capEntry, 'descriptor should have capability entry');
+  assert.equal(capEntry.value.value, 'previous');
+});
+
 /* ----------------------------------------------------------------------------------- *
  * Document-level nodes
  * ----------------------------------------------------------------------------------- */

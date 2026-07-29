@@ -532,12 +532,13 @@ function makeCall(ctx, calleeRef, args) {
 
 /**
  * Normalizes the argument of a capability-sugar call into a `need` descriptor carrying
- * `capability: '<name>'` (SPEC §1.6). Besides the full object, a string shorthand is accepted:
+ * `capability: '<name>'` (SPEC §1.6). Accepts three forms:
  *  - `cap('id')` — a bare string literal is the requirement **id** →
  *    `{ id:'id', capability:'<name>' }` (the rest of the contract is inherited from the
  *    capability, SPEC §1.6);
- *  - `cap({...})` — an explicit descriptor object, into which `capability` is injected.
- * Any other shape is left untouched for `validate`/`run` to flag.
+ *  - `cap({...})` — an explicit descriptor object, into which `capability` is injected;
+ *  - `cap(expr)` — any other expression (e.g., function call) → wrapped as
+ *    `{ args: { ref: expr }, capability: '<name>' }` to be resolved dynamically (SPEC §2.4).
  * @param {import('../ast/nodes.js').Expr[]} args
  * @param {string} name
  * @param {import('../ast/nodes.js').Position} position
@@ -562,14 +563,36 @@ function injectCapability(args, name, position) {
     return [descriptor, ...args.slice(1)];
   }
 
-  if (!first || first.kind !== 'ObjectLit') return args; // other shapes: validate/run will flag
-  const hasCapability = first.entries.some((e) => e.key === 'capability');
-  if (hasCapability) return args;
+  if (!first) return args;
+
+  // `cap({...})` — explicit descriptor object, inject capability.
+  if (first.kind === 'ObjectLit') {
+    const hasCapability = first.entries.some((e) => e.key === 'capability');
+    if (hasCapability) return args;
+    /** @type {import('../ast/nodes.js').ObjectLitNode} */
+    const descriptor = {
+      kind: 'ObjectLit',
+      position: first.position,
+      entries: [...first.entries, capabilityEntry],
+    };
+    return [descriptor, ...args.slice(1)];
+  }
+
+  // `cap(expr)` — dynamic expression, wrap with `args: { ref: expr }`.
+  /** @type {import('../ast/nodes.js').ObjectLitNode} */
+  const argsObject = {
+    kind: 'ObjectLit',
+    position: first.position,
+    entries: [{ key: 'ref', value: first }],
+  };
   /** @type {import('../ast/nodes.js').ObjectLitNode} */
   const descriptor = {
     kind: 'ObjectLit',
     position: first.position,
-    entries: [...first.entries, capabilityEntry],
+    entries: [
+      { key: 'args', value: argsObject },
+      capabilityEntry,
+    ],
   };
   return [descriptor, ...args.slice(1)];
 }
