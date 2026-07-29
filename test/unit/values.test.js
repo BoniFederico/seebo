@@ -26,6 +26,7 @@ import {
   validate,
   objectGet,
   arrayGet,
+  indexedGet,
   serialize,
   deserialize,
   builder,
@@ -238,6 +239,23 @@ test('access errors: missing key, __proto__, out of bounds, wrong type', () => {
   assert.throws(() => objectGet(makeArray([1]), 'a'), SeeboError);
   assert.throws(() => arrayGet(makeArray([1]), 5), SeeboError);
   assert.throws(() => arrayGet(makeArray([1]), -1), SeeboError);
+});
+
+test('indexedGet dispatches object[string] / array[int] (bracket member access)', () => {
+  const o = makeObject({ 'strange key!': 'Ada', age: 36 });
+  assert.deepEqual(indexedGet(o, makeString('strange key!')), makeString('Ada'));
+  assert.deepEqual(indexedGet(o, makeString('age')), makeInt(36));
+
+  const a = makeArray([10, 20, 30]);
+  assert.deepEqual(indexedGet(a, makeInt(1)), makeInt(20));
+});
+
+test('indexedGet errors: wrong key type, non-indexable receiver', () => {
+  const o = makeObject({ a: 1 });
+  const a = makeArray([1, 2]);
+  assert.throws(() => indexedGet(o, makeInt(0)), SeeboError); // object needs a string key
+  assert.throws(() => indexedGet(a, makeString('0')), SeeboError); // array needs a numeric index
+  assert.throws(() => indexedGet(makeInt(1), makeString('a')), SeeboError); // int is not indexable
 });
 
 /* ----------------------------------------------------------------------------------- *

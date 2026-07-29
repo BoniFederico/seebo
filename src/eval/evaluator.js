@@ -31,6 +31,7 @@ import {
   isValue,
   isNumeric,
   objectGet,
+  indexedGet,
   emptyValue,
 } from '../runtime/values.js';
 import { toText } from '../runtime/stringify.js';
@@ -761,9 +762,20 @@ function callExtension(def, self, args, node) {
 
 /** @param {import('../ast/nodes.js').MemberNode} e @param {EvalContext} ctx */
 function evalMember(e, ctx) {
+  if (!e.computed) {
+    const recv = evaluate(e.receiver, ctx);
+    if (recv.kind !== 'Ok') return recv;
+    return tryApply(() => objectGet(recv.value, /** @type {string} */ (e.key)), e);
+  }
+
+  // Computed `receiver[key]`: evaluate BOTH sides so independent Needs are collected in batch.
   const recv = evaluate(e.receiver, ctx);
-  if (recv.kind !== 'Ok') return recv;
-  return tryApply(() => objectGet(recv.value, e.key), e);
+  const key = evaluate(/** @type {import('../ast/nodes.js').Expr} */ (e.key), ctx);
+  if (recv.kind === 'Err') return recv;
+  if (key.kind === 'Err') return key;
+  if (recv.kind === 'Susp') return recv;
+  if (key.kind === 'Susp') return key;
+  return tryApply(() => indexedGet(recv.value, key.value), e);
 }
 
 /** @param {import('../ast/nodes.js').ObjectLitNode} e @param {EvalContext} ctx */

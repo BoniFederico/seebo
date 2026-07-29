@@ -141,12 +141,15 @@ export const ExprKind = Object.freeze({
  */
 
 /**
- * Member access `receiver.key` on an object (SPEC §1.5).
+ * Member access on an object or array (SPEC §1.5): static `receiver.key`, or
+ * computed `receiver[key]` (`computed: true`) for property/index names that aren't
+ * valid identifiers (special characters, reserved words) or are computed at runtime.
  * @typedef {Object} MemberNode
  * @property {'Member'} kind
  * @property {Position} position
- * @property {Expr} receiver  The object value being accessed.
- * @property {string} key  Static key name.
+ * @property {Expr} receiver  The object or array value being accessed.
+ * @property {string|Expr} key  Static key name (`computed: false`) or key expression (`computed: true`).
+ * @property {boolean} computed  Whether `key` is an expression (`[...]`) rather than a static name (`.name`).
  */
 
 /**

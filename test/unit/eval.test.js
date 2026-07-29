@@ -106,6 +106,46 @@ test('IMPL §5 — independent Needs are collected in one pass (batch)', () => {
 });
 
 /* ----------------------------------------------------------------------------------- *
+ * Member access (SPEC §1.5): static `.key` and computed `[key]`
+ * ----------------------------------------------------------------------------------- */
+
+test('computed member access reads a key with special characters', () => {
+  const ast = engine.parse("${ o['strange key!'] }");
+  const res = evaluateDocument(ast, { o: { 'strange key!': 'hi' } }, {});
+  assert.equal(res.status, 'completed');
+  assert.equal(res.output, 'hi');
+});
+
+test('computed member access accepts a runtime-computed key expression', () => {
+  const ast = engine.parse('${ o[k] }');
+  const res = evaluateDocument(ast, { o: { a: 1, b: 2 }, k: 'b' }, {});
+  assert.equal(res.status, 'completed');
+  assert.equal(res.output, '2');
+});
+
+test('computed member access indexes an array by an int expression', () => {
+  const ast = engine.parse('${ arr[i] }');
+  const res = evaluateDocument(ast, { arr: [10, 20, 30], i: 2 }, {});
+  assert.equal(res.status, 'completed');
+  assert.equal(res.output, '30');
+});
+
+test('computed member access batches Needs from both receiver and key', () => {
+  const ast = engine.parse(
+    "${ need({id:'o', type:object(), capability:'user'})[need({id:'k', type:string(), capability:'user'})] }"
+  );
+  const r = evaluateDocument(ast, {}, {});
+  assert.equal(r.status, 'waiting');
+  assert.deepEqual(r.pending.map((/** @type {any} */ p) => p.id).sort(), ['k', 'o']);
+});
+
+test('computed member access errors: wrong key type for the receiver', () => {
+  const ast = engine.parse('${ o[0] }');
+  const res = evaluate(/** @type {any} */ (ast.nodes[0]).expr, ctx({ o: { a: 1 } }));
+  assert.equal(res.kind, ResultKind.ERR);
+});
+
+/* ----------------------------------------------------------------------------------- *
  * createEvaluator: step / resume
  * ----------------------------------------------------------------------------------- */
 

@@ -17,6 +17,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Computed member access `receiver[key]`.** Bracket access on objects and arrays,
+  alongside static `receiver.key`: `o['strange key!']` reads an object property whose
+  name isn't a valid identifier or is computed at runtime (`o[k]`), and `a[i]` indexes
+  an array by an int expression. Sugar over the existing `o.get(key)` / `a.get(i)`
+  methods — same runtime semantics (prototype-pollution guards, bounds checks), just
+  without needing to route through a method call.
 - **Capability sugar string shorthand `cap('id')`.** A registered capability used with a bare
   string is the requirement **id**: `input('amount')` ≡ `need({ id:'amount', capability:'input' })`
   (inheriting the capability contract). Fixes the previous `cap('x')` error ("need descriptor needs

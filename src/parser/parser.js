@@ -247,8 +247,23 @@ function parsePostfix(ctx) {
           node = { kind: 'Method', position: span(node, end), receiver: node, name, args };
         }
       } else {
-        node = { kind: 'Member', position: span(node, nameTok), receiver: node, key: name };
+        node = {
+          kind: 'Member',
+          position: span(node, nameTok),
+          receiver: node,
+          key: name,
+          computed: false,
+        };
       }
+      continue;
+    }
+
+    // Computed member access: receiver[key]
+    if (tok.kind === TokenType.BRACKET && ctx.source[tok.start] === '[') {
+      ctx.next();
+      const key = parseExpr(ctx, 0);
+      const close = ctx.expectPunct(TokenType.BRACKET, ']', "expected ']' to close member access");
+      node = { kind: 'Member', position: span(node, close), receiver: node, key, computed: true };
       continue;
     }
 

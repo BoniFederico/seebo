@@ -499,7 +499,7 @@ function children(e) {
     case 'Namespace':
       return e.args;
     case 'Member':
-      return [e.receiver];
+      return e.computed ? [e.receiver, e.key] : [e.receiver];
     case 'ArrayLit':
       return e.elements;
     case 'ObjectLit':

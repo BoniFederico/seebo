@@ -151,7 +151,7 @@ di **precedenza decrescente** (in alto legano più forte):
 
 | Liv. | Operatori | Assoc. | Note di tipo |
 |---|---|---|---|
-| 1 | `.` (accesso membro / metodo) | sx | vedi §1.5 |
+| 1 | `.` / `[...]` (accesso membro / metodo) | sx | vedi §1.5 |
 | 2 | `not x`, `-x` (unari) | dx | `not`: bool; `-`: int/float/**duration** |
 | 3 | `*` `/` | sx | numeri; **scalatura durate** (vedi sotto); `/` per 0 ⇒ errore |
 | 4 | `+` `-` | sx | numeri, stringhe, **date e durate** (vedi sotto) |
@@ -282,6 +282,7 @@ s.contains(x)  s.startsWith(x)  s.endsWith(x)
 
 // array
 a.min()  a.max()  a.sum()  a.avg()  a.first()  a.last()  a.get(i)  a.len()  a.reverse()
+a[i]               // zucchero per a.get(i): indice statico o espressione
 
 // int / float
 n.abs()  n.round()  n.floor()  n.ceil()
@@ -300,6 +301,7 @@ dur.round('hour')  dur.truncate('day')
 // object
 o.campo            // accesso a chiave statica (identificatore)
 o.get('chiave')    // accesso a chiave dinamica/con caratteri speciali
+o['chiave']        // zucchero per o.get('chiave'): chiave statica o espressione
 o.keys()  o.values()
 
 // presentazione / vincolo (su qualunque oggetto, immutabili)

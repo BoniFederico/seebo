@@ -634,6 +634,27 @@ export function arrayGet(value, i) {
   return fromJs(arr[i]);
 }
 
+/**
+ * Reads `receiver[key]` where `key` is itself a computed {@link Value} (bracket
+ * member access, SPEC §1.5). Dispatches to {@link objectGet} (string key) for
+ * object receivers or {@link arrayGet} (integer key) for array receivers.
+ * @param {Value} receiver
+ * @param {Value} key
+ * @returns {Value}
+ * @throws {import('../util/errors.js').SeeboError}  If `receiver` is not indexable or `key` has the wrong type.
+ */
+export function indexedGet(receiver, key) {
+  if (receiver.type === 'array') {
+    if (!isNumeric(key)) throw typeError(`array index must be numeric, got '${key.type}'`);
+    return arrayGet(receiver, Math.trunc(/** @type {number} */ (key.value)));
+  }
+  if (receiver.type === 'object') {
+    if (key.type !== 'string') throw typeError(`object key must be a string, got '${key.type}'`);
+    return objectGet(receiver, /** @type {string} */ (key.value));
+  }
+  throw typeError(`cannot index a value of type '${receiver.type}'`);
+}
+
 /* ----------------------------------------------------------------------------------- *
  * Serialization (the value record is already a serializable POJO, IMPL §6.1)
  * ----------------------------------------------------------------------------------- */

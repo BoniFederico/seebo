@@ -80,6 +80,39 @@ test('member access o.campo', () => {
     kind: 'Member',
     receiver: { kind: 'Ref', name: 'o' },
     key: 'campo',
+    computed: false,
+  });
+});
+
+test("computed member access o['campo strano']", () => {
+  assert.deepEqual(expr("o['campo strano']"), {
+    kind: 'Member',
+    receiver: { kind: 'Ref', name: 'o' },
+    key: { kind: 'Lit', type: 'string', value: 'campo strano' },
+    computed: true,
+  });
+});
+
+test('computed member access chains and mixes with dot access', () => {
+  assert.deepEqual(expr("o['a'].b"), {
+    kind: 'Member',
+    receiver: {
+      kind: 'Member',
+      receiver: { kind: 'Ref', name: 'o' },
+      key: { kind: 'Lit', type: 'string', value: 'a' },
+      computed: true,
+    },
+    key: 'b',
+    computed: false,
+  });
+});
+
+test('computed member access with a non-literal key expression', () => {
+  assert.deepEqual(expr('o[k]'), {
+    kind: 'Member',
+    receiver: { kind: 'Ref', name: 'o' },
+    key: { kind: 'Ref', name: 'k' },
+    computed: true,
   });
 });
 

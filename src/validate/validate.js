@@ -153,6 +153,7 @@ export function validate(template, config) {
         return validateMethod(e);
       case 'Member':
         walk(e.receiver);
+        if (e.computed) walk(e.key);
         return 'unknown';
       case 'Namespace':
         if (!libraries.has(e.ns)) {
