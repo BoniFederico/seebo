@@ -1,6 +1,6 @@
 {
   "name": "seebo",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Suspendable Evaluation Engine Built with Opus — a typed, suspendable expression/template engine with a pure synchronous core.",
   "type": "module",
   "license": "MIT",
